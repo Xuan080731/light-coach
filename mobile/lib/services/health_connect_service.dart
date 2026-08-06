@@ -15,7 +15,11 @@ class HealthConnectService {
     final types = [HealthDataType.STEPS, HealthDataType.ACTIVE_ENERGY_BURNED];
     final activityPermission = await Permission.activityRecognition.request();
     if (!activityPermission.isGranted) throw const HealthConnectException('需要「身體活動」權限才能讀取步數。');
-    await _health.configure();
+    try {
+      await _health.configure();
+    } catch (_) {
+      throw const HealthConnectException('Health Connect 無法初始化。請確認 Android 14 已啟用 Health Connect，或在 Android 13 以下安裝 Health Connect。');
+    }
     final permissions = await _health.requestAuthorization(types);
     if (!permissions) throw const HealthConnectException('未取得 Health Connect 的步數與活動熱量權限。');
     final now = DateTime.now();

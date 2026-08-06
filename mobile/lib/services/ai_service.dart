@@ -107,6 +107,12 @@ class AiWeightPlan {
   final String summary;
 }
 
+class AiDailyAdvice {
+  const AiDailyAdvice({required this.headline, required this.advice});
+  final String headline;
+  final String advice;
+}
+
 class AiService {
   AiService({AiSettingsStore? settingsStore, http.Client? client})
       : _settingsStore = settingsStore ?? AiSettingsStore(),
@@ -152,6 +158,40 @@ class AiService {
         activeCalories: (data['active_calories'] as num? ?? 250).round().clamp(0, 1500).toInt(),
         summary: data['summary']?.toString() ?? '請依身體反應與實際執行情況調整。',
       );
+    } catch (_) {
+      throw const AiServiceException('AI 回覆格式無法辨識，請再試一次或更換模型。');
+    }
+  }
+
+  Future<AiDailyAdvice> createDailyAdvice({
+    required String meals,
+    required int caloriesConsumed,
+    required int calorieTarget,
+    required double proteinConsumed,
+    required double proteinTarget,
+    required int steps,
+    required int exerciseMinutes,
+    required String exerciseType,
+    required int activeCalories,
+    required int activeCaloriesTarget,
+    required double goalWeight,
+  }) async {
+    final settings = await _settingsStore.load();
+    final apiKey = await _settingsStore.readApiKey();
+    if (apiKey == null || apiKey.isEmpty) throw const AiServiceException('請先在設定的 AI 服務輸入 API 金鑰。');
+    final prompt = '''你是一般健康管理的飲食教練。依以下今日資料給一則務實、簡短、不帶醫療診斷的繁體中文建議。
+餐點：$meals
+熱量：$caloriesConsumed / $calorieTarget kcal；蛋白質：${proteinConsumed.toStringAsFixed(0)} / ${proteinTarget.toStringAsFixed(0)} g。
+步數：$steps；運動：$exerciseType $exerciseMinutes 分鐘；活動消耗：$activeCalories / $activeCaloriesTarget kcal。
+目前減重目標體重：${goalWeight.toStringAsFixed(1)} kg。
+只輸出 JSON：{"headline":"12字內標題","advice":"1至2句具體建議"}。不要危險節食或醫療建議。''';
+    final raw = await _requestText(settings, apiKey, prompt);
+    try {
+      final data = jsonDecode(raw.trim().replaceFirst(RegExp(r'^```(?:json)?\s*'), '').replaceFirst(RegExp(r'\s*```$'), '')) as Map<String, dynamic>;
+      final headline = data['headline']?.toString().trim() ?? '';
+      final advice = data['advice']?.toString().trim() ?? '';
+      if (headline.isEmpty || advice.isEmpty) throw const FormatException();
+      return AiDailyAdvice(headline: headline, advice: advice);
     } catch (_) {
       throw const AiServiceException('AI 回覆格式無法辨識，請再試一次或更換模型。');
     }

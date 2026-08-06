@@ -22,7 +22,8 @@ class HealthConnectService {
     final start = DateTime(now.year, now.month, now.day);
     final steps = await _health.getTotalStepsInInterval(start, now) ?? 0;
     final data = await _health.getHealthDataFromTypes(types: [HealthDataType.ACTIVE_ENERGY_BURNED], startTime: start, endTime: now);
-    final activeCalories = data.fold<double>(0, (total, point) {
+    final uniqueData = _health.removeDuplicates(data);
+    final activeCalories = uniqueData.fold<double>(0, (total, point) {
       final value = point.value;
       return total + (value is NumericHealthValue ? value.numericValue : 0);
     }).round();

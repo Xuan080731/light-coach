@@ -50,6 +50,23 @@ void main() {
     expect(restored.themeColor, AppThemeColor.plum);
   });
 
+  test('stores multiple daily meal reminder times in chronological order',
+      () async {
+    final controller = DietController();
+    await controller.updateMealReminders(enabled: true, times: const [
+      MealReminderTime(hour: 20, minute: 0),
+      MealReminderTime(hour: 8, minute: 30),
+      MealReminderTime(hour: 20, minute: 0),
+    ]);
+
+    final restored = DietController();
+    await restored.load();
+
+    expect(restored.mealReminderEnabled, isTrue);
+    expect(restored.mealReminderTimes.map((time) => time.minuteOfDay),
+        [8 * 60 + 30, 20 * 60]);
+  });
+
   testWidgets('asks a new user to choose a tracking mode', (tester) async {
     await tester.pumpWidget(DietCoachApp());
     await tester.pump();

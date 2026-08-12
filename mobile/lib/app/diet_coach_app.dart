@@ -424,7 +424,7 @@ class _SettingsPage extends StatelessWidget {
             leading: const Icon(Icons.notifications_active_outlined),
             title: const Text('餐點紀錄提醒'),
             subtitle: Text(diet.mealReminderEnabled
-                ? '每天 ${_formatReminderTime(diet.mealReminderHour, diet.mealReminderMinute)} 提醒'
+                ? '每天 ${diet.mealReminderTimes.map((time) => _formatReminderTime(time.hour, time.minute)).join('、')} 提醒'
                 : '尚未啟用'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
@@ -482,6 +482,22 @@ class _MealReminderSettingsPage extends StatefulWidget {
 class _MealReminderSettingsPageState extends State<_MealReminderSettingsPage> {
   var _updating = false;
 
+  Future<void> _saveTimes(
+      DietController diet, List<MealReminderTime> times) async {
+    for (final time in diet.mealReminderTimes) {
+      await MealReminderService.instance
+          .cancelDaily(hour: time.hour, minute: time.minute);
+    }
+    if (diet.mealReminderEnabled) {
+      for (final time in times) {
+        await MealReminderService.instance
+            .scheduleDaily(hour: time.hour, minute: time.minute);
+      }
+    }
+    await diet.updateMealReminders(
+        enabled: diet.mealReminderEnabled, times: times);
+  }
+
   Future<void> _setEnabled(DietController diet, bool enabled) async {
     if (_updating) return;
     setState(() => _updating = true);
@@ -496,15 +512,18 @@ class _MealReminderSettingsPageState extends State<_MealReminderSettingsPage> {
           }
           return;
         }
-        await MealReminderService.instance.scheduleDaily(
-            hour: diet.mealReminderHour, minute: diet.mealReminderMinute);
+        for (final time in diet.mealReminderTimes) {
+          await MealReminderService.instance
+              .scheduleDaily(hour: time.hour, minute: time.minute);
+        }
       } else {
-        await MealReminderService.instance.cancel();
+        for (final time in diet.mealReminderTimes) {
+          await MealReminderService.instance
+              .cancelDaily(hour: time.hour, minute: time.minute);
+        }
       }
-      await diet.updateMealReminder(
-          enabled: enabled,
-          hour: diet.mealReminderHour,
-          minute: diet.mealReminderMinute);
+      await diet.updateMealReminders(
+          enabled: enabled, times: diet.mealReminderTimes);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context)
@@ -515,26 +534,50 @@ class _MealReminderSettingsPageState extends State<_MealReminderSettingsPage> {
     }
   }
 
-  Future<void> _pickTime(DietController diet) async {
+  Future<void> _pickTime(DietController diet,
+      {MealReminderTime? editing}) async {
     final time = await showTimePicker(
         context: context,
         initialTime: TimeOfDay(
-            hour: diet.mealReminderHour, minute: diet.mealReminderMinute));
+            hour: editing?.hour ?? TimeOfDay.now().hour,
+            minute: editing?.minute ?? TimeOfDay.now().minute));
     if (!mounted || time == null) return;
+    final newTime = MealReminderTime(hour: time.hour, minute: time.minute);
+    final others = diet.mealReminderTimes
+        .where((item) => item.minuteOfDay != editing?.minuteOfDay)
+        .toList();
+    if (others.any((item) => item.minuteOfDay == newTime.minuteOfDay)) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('這個提醒時間已經存在。')));
+      return;
+    }
     setState(() => _updating = true);
     try {
-      if (diet.mealReminderEnabled) {
-        await MealReminderService.instance
-            .scheduleDaily(hour: time.hour, minute: time.minute);
-      }
-      await diet.updateMealReminder(
-          enabled: diet.mealReminderEnabled,
-          hour: time.hour,
-          minute: time.minute);
+      await _saveTimes(diet, [...others, newTime]);
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('更新提醒時間失敗，請再試一次。')));
+      }
+    } finally {
+      if (mounted) setState(() => _updating = false);
+    }
+  }
+
+  Future<void> _removeTime(
+      DietController diet, MealReminderTime removed) async {
+    if (diet.mealReminderTimes.length == 1) return;
+    setState(() => _updating = true);
+    try {
+      await _saveTimes(
+          diet,
+          diet.mealReminderTimes
+              .where((item) => item.minuteOfDay != removed.minuteOfDay)
+              .toList());
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('移除提醒失敗，請再試一次。')));
       }
     } finally {
       if (mounted) setState(() => _updating = false);
@@ -557,17 +600,30 @@ class _MealReminderSettingsPageState extends State<_MealReminderSettingsPage> {
                 onChanged:
                     _updating ? null : (value) => _setEnabled(diet, value)),
             const Divider(height: 1),
-            ListTile(
+            ...diet.mealReminderTimes.map((time) => ListTile(
                 enabled: !_updating,
                 leading: const Icon(Icons.schedule_outlined),
-                title: const Text('提醒時間'),
-                subtitle: Text(_formatReminderTime(
-                    diet.mealReminderHour, diet.mealReminderMinute)),
-                trailing: const Icon(Icons.chevron_right),
+                title: Text(_formatReminderTime(time.hour, time.minute)),
+                subtitle: const Text('每天提醒'),
+                trailing: IconButton(
+                    tooltip: diet.mealReminderTimes.length == 1
+                        ? '至少保留一個提醒時間'
+                        : '移除提醒時間',
+                    onPressed: _updating || diet.mealReminderTimes.length == 1
+                        ? null
+                        : () => _removeTime(diet, time),
+                    icon: const Icon(Icons.close)),
+                onTap:
+                    _updating ? null : () => _pickTime(diet, editing: time))),
+            ListTile(
+                enabled: !_updating,
+                leading: const Icon(Icons.add_alarm_outlined),
+                title: const Text('新增提醒時間'),
+                trailing: const Icon(Icons.add),
                 onTap: _updating ? null : () => _pickTime(diet)),
           ])),
           const SizedBox(height: 16),
-          const Text('提醒時間由系統安排；省電模式或系統通知設定可能讓通知稍有延後。')
+          const Text('可設定多個每日提醒。提醒時間由系統安排；省電模式或系統通知設定可能讓通知稍有延後。')
         ]));
   }
 }

@@ -41,6 +41,21 @@ enum AppBrightnessMode {
   dark,
 }
 
+class MealReminderTime {
+  const MealReminderTime({required this.hour, required this.minute});
+
+  final int hour;
+  final int minute;
+  int get minuteOfDay => hour * 60 + minute;
+
+  Map<String, dynamic> toJson() => {'hour': hour, 'minute': minute};
+
+  static MealReminderTime fromJson(Map<String, dynamic> data) =>
+      MealReminderTime(
+          hour: (data['hour'] as num? ?? 19).round().clamp(0, 23).toInt(),
+          minute: (data['minute'] as num? ?? 30).round().clamp(0, 59).toInt());
+}
+
 extension AppBrightnessModeLabel on AppBrightnessMode {
   String get label => switch (this) {
         AppBrightnessMode.system => '跟隨系統',
@@ -71,8 +86,9 @@ class DietController extends ChangeNotifier {
   AppThemeColor themeColor = AppThemeColor.materialYou;
   AppBrightnessMode brightnessMode = AppBrightnessMode.system;
   bool mealReminderEnabled = false;
-  int mealReminderHour = 19;
-  int mealReminderMinute = 30;
+  List<MealReminderTime> mealReminderTimes = [
+    const MealReminderTime(hour: 19, minute: 30)
+  ];
 
   List<MealEntry> get meals => List.unmodifiable(_meals);
   List<WeightEntry> get weights => List.unmodifiable(_weights);
@@ -241,14 +257,12 @@ class DietController extends ChangeNotifier {
     await _commit();
   }
 
-  Future<void> updateMealReminder({
+  Future<void> updateMealReminders({
     required bool enabled,
-    required int hour,
-    required int minute,
+    required List<MealReminderTime> times,
   }) async {
     mealReminderEnabled = enabled;
-    mealReminderHour = hour.clamp(0, 23).toInt();
-    mealReminderMinute = minute.clamp(0, 59).toInt();
+    mealReminderTimes = _normalizeReminderTimes(times);
     await _commit();
   }
 
@@ -329,8 +343,8 @@ class DietController extends ChangeNotifier {
         'themeColor': themeColor.name,
         'brightnessMode': brightnessMode.name,
         'mealReminderEnabled': mealReminderEnabled,
-        'mealReminderHour': mealReminderHour,
-        'mealReminderMinute': mealReminderMinute,
+        'mealReminderTimes':
+            mealReminderTimes.map((time) => time.toJson()).toList(),
       };
 
   void _applyData(Map<String, dynamic> data) {
@@ -371,10 +385,39 @@ class DietController extends ChangeNotifier {
       _ => AppBrightnessMode.system,
     };
     mealReminderEnabled = data['mealReminderEnabled'] as bool? ?? false;
-    mealReminderHour =
-        (data['mealReminderHour'] as num? ?? 19).round().clamp(0, 23).toInt();
-    mealReminderMinute =
-        (data['mealReminderMinute'] as num? ?? 30).round().clamp(0, 59).toInt();
+    final savedTimes = data['mealReminderTimes'];
+    if (savedTimes is List<dynamic>) {
+      mealReminderTimes = _normalizeReminderTimes(savedTimes
+          .whereType<Map>()
+          .map((item) =>
+              MealReminderTime.fromJson(Map<String, dynamic>.from(item)))
+          .toList());
+    } else {
+      // Migrate the original single-time setting without losing it.
+      mealReminderTimes = [
+        MealReminderTime(
+            hour: (data['mealReminderHour'] as num? ?? 19)
+                .round()
+                .clamp(0, 23)
+                .toInt(),
+            minute: (data['mealReminderMinute'] as num? ?? 30)
+                .round()
+                .clamp(0, 59)
+                .toInt())
+      ];
+    }
+  }
+
+  static List<MealReminderTime> _normalizeReminderTimes(
+      List<MealReminderTime> times) {
+    final byMinute = <int, MealReminderTime>{
+      for (final time in times) time.minuteOfDay: time
+    };
+    final normalized = byMinute.values.toList()
+      ..sort((a, b) => a.minuteOfDay.compareTo(b.minuteOfDay));
+    return normalized.isEmpty
+        ? [const MealReminderTime(hour: 19, minute: 30)]
+        : normalized;
   }
 
   static bool _isSameDay(DateTime a, DateTime b) =>

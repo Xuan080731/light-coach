@@ -7,7 +7,6 @@ class MealReminderService {
   MealReminderService._();
 
   static final MealReminderService instance = MealReminderService._();
-  static const _notificationId = 1001;
   static const _channelId = 'meal_log_reminders';
   static const _channelName = '餐點紀錄提醒';
   final FlutterLocalNotificationsPlugin _notifications =
@@ -47,7 +46,7 @@ class MealReminderService {
           tz.local, tomorrow.year, tomorrow.month, tomorrow.day, hour, minute);
     }
     await _notifications.zonedSchedule(
-      id: _notificationId,
+      id: _notificationId(hour, minute),
       title: '記錄今天的餐點',
       body: '花一分鐘補上今天吃了什麼，讓熱量摘要更準確。',
       scheduledDate: next,
@@ -67,8 +66,10 @@ class MealReminderService {
     );
   }
 
-  Future<void> cancel() async {
+  Future<void> cancelDaily({required int hour, required int minute}) async {
     await initialize();
-    await _notifications.cancel(id: _notificationId);
+    await _notifications.cancel(id: _notificationId(hour, minute));
   }
+
+  static int _notificationId(int hour, int minute) => 1000 + hour * 60 + minute;
 }

@@ -10,9 +10,10 @@ Future<void> main() async {
   await controller.load();
   await MealReminderService.instance.initialize();
   if (controller.mealReminderEnabled) {
-    await MealReminderService.instance.scheduleDaily(
-        hour: controller.mealReminderHour,
-        minute: controller.mealReminderMinute);
+    for (final time in controller.mealReminderTimes) {
+      await MealReminderService.instance
+          .scheduleDaily(hour: time.hour, minute: time.minute);
+    }
   }
   runApp(DietCoachApp(controller: controller));
 }

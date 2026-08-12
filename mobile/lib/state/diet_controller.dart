@@ -70,6 +70,9 @@ class DietController extends ChangeNotifier {
   TrackingMode? trackingMode;
   AppThemeColor themeColor = AppThemeColor.materialYou;
   AppBrightnessMode brightnessMode = AppBrightnessMode.system;
+  bool mealReminderEnabled = false;
+  int mealReminderHour = 19;
+  int mealReminderMinute = 30;
 
   List<MealEntry> get meals => List.unmodifiable(_meals);
   List<WeightEntry> get weights => List.unmodifiable(_weights);
@@ -231,9 +234,21 @@ class DietController extends ChangeNotifier {
   }
 
   Future<void> updateTheme(
-      {required AppThemeColor color, required AppBrightnessMode brightness}) async {
+      {required AppThemeColor color,
+      required AppBrightnessMode brightness}) async {
     themeColor = color;
     brightnessMode = brightness;
+    await _commit();
+  }
+
+  Future<void> updateMealReminder({
+    required bool enabled,
+    required int hour,
+    required int minute,
+  }) async {
+    mealReminderEnabled = enabled;
+    mealReminderHour = hour.clamp(0, 23).toInt();
+    mealReminderMinute = minute.clamp(0, 59).toInt();
     await _commit();
   }
 
@@ -292,9 +307,7 @@ class DietController extends ChangeNotifier {
 
   Future<void> _save() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-        _storageKey,
-        jsonEncode(_toJson()));
+    await prefs.setString(_storageKey, jsonEncode(_toJson()));
   }
 
   Map<String, dynamic> _toJson() => {
@@ -315,6 +328,9 @@ class DietController extends ChangeNotifier {
         'trackingMode': trackingMode?.name,
         'themeColor': themeColor.name,
         'brightnessMode': brightnessMode.name,
+        'mealReminderEnabled': mealReminderEnabled,
+        'mealReminderHour': mealReminderHour,
+        'mealReminderMinute': mealReminderMinute,
       };
 
   void _applyData(Map<String, dynamic> data) {
@@ -354,6 +370,11 @@ class DietController extends ChangeNotifier {
       'dark' => AppBrightnessMode.dark,
       _ => AppBrightnessMode.system,
     };
+    mealReminderEnabled = data['mealReminderEnabled'] as bool? ?? false;
+    mealReminderHour =
+        (data['mealReminderHour'] as num? ?? 19).round().clamp(0, 23).toInt();
+    mealReminderMinute =
+        (data['mealReminderMinute'] as num? ?? 30).round().clamp(0, 59).toInt();
   }
 
   static bool _isSameDay(DateTime a, DateTime b) =>
@@ -422,8 +443,7 @@ class _DietScopeState extends State<DietScope> {
 }
 
 class _DietScopeInherited extends InheritedWidget {
-  const _DietScopeInherited(
-      {required this.controller, required super.child});
+  const _DietScopeInherited({required this.controller, required super.child});
 
   final DietController controller;
 

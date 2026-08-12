@@ -684,7 +684,7 @@ class _BackupSettingsPageState extends State<_BackupSettingsPage> {
     final fileName =
         'light-coach-backup-${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}.json';
     try {
-      final path = await FilePicker.saveFile(
+      final path = await FilePicker.platform.saveFile(
         dialogTitle: '選擇備份檔儲存位置',
         fileName: fileName,
         type: FileType.custom,
@@ -704,7 +704,7 @@ class _BackupSettingsPageState extends State<_BackupSettingsPage> {
 
   Future<void> _restoreBackupFile() async {
     try {
-      final picked = await FilePicker.pickFiles(
+      final picked = await FilePicker.platform.pickFiles(
         dialogTitle: '選擇要還原的備份檔',
         type: FileType.custom,
         allowedExtensions: const ['json'],

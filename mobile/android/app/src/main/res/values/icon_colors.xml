@@ -1,4 +1,5 @@
 <resources>
     <!-- Adaptive icon background: Material You neutral surface. -->
     <color name="ic_launcher_background">#FFFBF5</color>
+    <color name="launch_background">#FFFBF5</color>
 </resources>

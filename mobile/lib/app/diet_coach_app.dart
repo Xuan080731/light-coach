@@ -373,8 +373,6 @@ class _SettingsPage extends StatelessWidget {
               .textTheme
               .headlineSmall
               ?.copyWith(fontWeight: FontWeight.bold)),
-      const SizedBox(height: 8),
-      const Text('管理 AI 服務與健康資料同步。'),
       const SizedBox(height: 20),
       Card(
           child: Column(children: [

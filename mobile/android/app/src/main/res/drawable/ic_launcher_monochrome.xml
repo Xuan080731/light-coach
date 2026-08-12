@@ -1,0 +1,19 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- A single-color leaf, fork and spark for Android 13 themed icons. -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="6"
+        android:strokeLineJoin="round"
+        android:pathData="M54,16C77,19 91,34 91,57C91,77 77,91 57,91C34,91 19,77 17,54C19,34 34,19 54,16Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M51,31C48.8,31 47,32.8 47,35L47,49C47,51.2 48.8,53 51,53C53.2,53 55,51.2 55,49L55,35C55,32.8 53.2,31 51,31ZM62,31C59.8,31 58,32.8 58,35L58,49C58,51.2 59.8,53 62,53C64.2,53 66,51.2 66,49L66,35C66,32.8 64.2,31 62,31ZM73,31C70.8,31 69,32.8 69,35L69,49C69,51.2 70.8,53 73,53C75.2,53 77,51.2 77,49L77,35C77,32.8 75.2,31 73,31ZM47,58C47,53.6 50.6,50 55,50L69,50C73.4,50 77,53.6 77,58C77,64.7 73.2,70.5 67,73.4L67,84L57,84L57,73.4C50.8,70.5 47,64.7 47,58Z" />
+    <path
+        android:fillColor="#FF000000"
+        android:pathData="M31,26L34,35L43,38L34,41L31,50L28,41L19,38L28,35Z" />
+</vector>

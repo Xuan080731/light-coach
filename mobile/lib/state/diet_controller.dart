@@ -240,14 +240,16 @@ class DietController extends ChangeNotifier {
   Future<DateTime?> createLocalBackup() async {
     final createdAt = DateTime.now();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-        _backupKey,
-        jsonEncode({
-          'createdAt': createdAt.toIso8601String(),
-          'data': _toJson(),
-        }));
+    await prefs.setString(_backupKey, exportBackupDocument(createdAt));
     return createdAt;
   }
+
+  /// A portable JSON document suitable for saving outside the app.
+  String exportBackupDocument([DateTime? createdAt]) => jsonEncode({
+        'version': 1,
+        'createdAt': (createdAt ?? DateTime.now()).toIso8601String(),
+        'data': _toJson(),
+      });
 
   Future<DateTime?> localBackupTime() async {
     final prefs = await SharedPreferences.getInstance();
@@ -265,9 +267,16 @@ class DietController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_backupKey);
     if (raw == null) return false;
+    return restoreBackupDocument(raw);
+  }
+
+  /// Restores a document made by [exportBackupDocument].
+  Future<bool> restoreBackupDocument(String raw) async {
     try {
       final backup = jsonDecode(raw) as Map<String, dynamic>;
-      _applyData(backup['data'] as Map<String, dynamic>);
+      final data = backup['data'];
+      if (data is! Map<String, dynamic>) return false;
+      _applyData(data);
       await _save();
       notifyListeners();
       return true;

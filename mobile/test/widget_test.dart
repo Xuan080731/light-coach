@@ -35,6 +35,21 @@ void main() {
     expect(controller.brightnessMode, AppBrightnessMode.dark);
   });
 
+  test('restores a portable backup document', () async {
+    final source = DietController();
+    await source.addWeight(68.5);
+    await source.updateTheme(
+        color: AppThemeColor.plum, brightness: AppBrightnessMode.light);
+
+    final restored = DietController();
+    final success = await restored.restoreBackupDocument(
+        source.exportBackupDocument(DateTime(2026, 8, 12)));
+
+    expect(success, isTrue);
+    expect(restored.currentWeight, 68.5);
+    expect(restored.themeColor, AppThemeColor.plum);
+  });
+
   testWidgets('asks a new user to choose a tracking mode', (tester) async {
     await tester.pumpWidget(DietCoachApp());
     await tester.pump();

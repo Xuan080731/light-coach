@@ -203,7 +203,7 @@ class AiGoalPlanPage extends StatelessWidget {
     showDialog<void>(
         context: context,
         barrierDismissible: false,
-        builder: (_) => const WillPopScope(
+        builder: (_) => WillPopScope(
             onWillPop: () async => false,
             child: AlertDialog(
                 content: Row(children: [

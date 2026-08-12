@@ -251,6 +251,43 @@ class AiService {
     }
   }
 
+  Future<String> createHealthCoachAnswer({
+    required String question,
+    required String userContext,
+  }) async {
+    final settings = await _settingsStore.load();
+    final apiKey = await _settingsStore.readApiKey();
+    if (apiKey == null || apiKey.isEmpty) {
+      throw const AiServiceException('請先在 AI 服務設定中填入 API 金鑰。');
+    }
+    if (settings.model.trim().isEmpty) {
+      throw const AiServiceException('請先在 AI 服務設定中選擇模型。');
+    }
+    final prompt = '''你是 App 內的健康與健身教練。只能回答健身、運動、飲食、體重管理、睡眠和一般健康生活習慣相關的問題。
+若使用者問題與這些主題無關，answer 必須只回答「我只能協助健身、飲食與一般健康管理相關問題。」不要回答原問題。
+不得做出醫療診斷、開立處方或建議危險行為；有症狀、用藥、孕期、飲食疾患或慢性病等情況，請建議諮詢合格醫療人員。回答使用繁體中文，根據資料給出務實、簡短的 2 至 5 句建議。
+
+使用者 App 資料：
+$userContext
+
+使用者問題：
+$question
+
+只回傳 JSON：{"answer":"回答內容"}''';
+    final raw = await _requestText(settings, apiKey, prompt);
+    try {
+      final data = jsonDecode(raw
+          .trim()
+          .replaceFirst(RegExp(r'^```(?:json)?\\s*'), '')
+          .replaceFirst(RegExp(r'\\s*```$'), '')) as Map<String, dynamic>;
+      final answer = data['answer']?.toString().trim() ?? '';
+      if (answer.isEmpty) throw const FormatException();
+      return answer;
+    } catch (_) {
+      throw const AiServiceException('AI 回覆格式不正確，請稍後再試。');
+    }
+  }
+
   static const _prompt = '''分析這張餐點照片，估算可食用部分的熱量與蛋白質。請只輸出 JSON：
 {"items":[{"name":"食物名稱","calories":整數,"protein_g":數字}],"confidence":0到1之間的數字,"notes":"簡短且說明估算不確定性"}
 不可辨識的食物請省略；不要輸出 Markdown 或額外文字。''';

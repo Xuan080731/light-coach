@@ -36,19 +36,25 @@ class WeightPage extends StatelessWidget {
                 children: [
                   ListTile(
                       contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.monitor_weight_outlined),
-                      title: const Text('最新體重'),
-                      trailing: Text(latest == null
-                          ? '尚未記錄'
-                          : '${latest.toStringAsFixed(1)} kg')),
-                  const Divider(height: 1),
-                  ListTile(
-                      contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.analytics_outlined),
                       title: const Text('BMI'),
                       subtitle:
                           Text(bmi == null ? '新增體重與身高後計算' : _bmiLabel(bmi)),
                       trailing: Text(bmi?.toStringAsFixed(1) ?? '—')),
+                  const Divider(height: 1),
+                  ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.height_outlined),
+                      title: const Text('身高'),
+                      trailing: Text('${diet.heightCm.toStringAsFixed(0)} cm')),
+                  const Divider(height: 1),
+                  ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.monitor_weight_outlined),
+                      title: const Text('目前體重'),
+                      trailing: Text(latest == null
+                          ? '尚未記錄'
+                          : '${latest.toStringAsFixed(1)} kg')),
                   const Divider(height: 1),
                   ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -60,7 +66,7 @@ class WeightPage extends StatelessWidget {
                   FilledButton.icon(
                       onPressed: () => _editBodyProfile(context, diet),
                       icon: const Icon(Icons.edit_outlined),
-                      label: const Text('編輯身體資料')),
+                      label: const Text('編輯身體資料與記錄體重')),
                 ],
               ),
             ),
@@ -105,11 +111,6 @@ class WeightPage extends StatelessWidget {
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddWeight(context, diet),
-        icon: const Icon(Icons.add_chart),
-        label: const Text('記錄體重'),
-      ),
     );
   }
 
@@ -120,35 +121,10 @@ class WeightPage extends StatelessWidget {
           : bmi < 27
               ? '過重'
               : '肥胖風險較高';
-  Future<void> _showAddWeight(BuildContext context, DietController diet) async {
-    final controller = TextEditingController();
-    final saved = await showDialog<bool>(
-        context: context,
-        builder: (dialogContext) => AlertDialog(
-                title: const Text('記錄體重'),
-                content: TextField(
-                    controller: controller,
-                    autofocus: true,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    decoration: const InputDecoration(
-                        labelText: '體重（kg）', border: OutlineInputBorder())),
-                actions: [
-                  TextButton(
-                      onPressed: () => Navigator.pop(dialogContext),
-                      child: const Text('取消')),
-                  FilledButton(
-                      onPressed: () => Navigator.pop(dialogContext, true),
-                      child: const Text('儲存'))
-                ]));
-    final kilograms = double.tryParse(controller.text);
-    controller.dispose();
-    if (saved == true && kilograms != null && kilograms > 0 && kilograms < 500)
-      await diet.addWeight(kilograms);
-  }
-
   Future<void> _editBodyProfile(
       BuildContext context, DietController diet) async {
+    final weight = TextEditingController(
+        text: diet.currentWeight?.toStringAsFixed(1) ?? '');
     final height =
         TextEditingController(text: diet.heightCm.toStringAsFixed(0));
     final age = TextEditingController(text: diet.age.toString());
@@ -161,6 +137,18 @@ class WeightPage extends StatelessWidget {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              TextField(
+                controller: weight,
+                autofocus: diet.currentWeight == null,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: '目前體重（kg）',
+                  helperText: '儲存後會新增一筆體重紀錄',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
               TextField(
                 controller: height,
                 keyboardType:
@@ -207,8 +195,10 @@ class WeightPage extends StatelessWidget {
         ),
       ),
     );
+    final weightValue = double.tryParse(weight.text);
     final heightValue = double.tryParse(height.text);
     final ageValue = int.tryParse(age.text);
+    weight.dispose();
     height.dispose();
     age.dispose();
     if (saved == true &&
@@ -220,6 +210,13 @@ class WeightPage extends StatelessWidget {
         ageValue <= 120) {
       await diet.updateBodyProfile(
           height: heightValue, profileAge: ageValue, sex: sex);
+      if (weightValue != null &&
+          weightValue > 0 &&
+          weightValue < 500 &&
+          (diet.currentWeight == null ||
+              (diet.currentWeight! - weightValue).abs() >= 0.01)) {
+        await diet.addWeight(weightValue);
+      }
     }
   }
 

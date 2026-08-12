@@ -1,4 +1,8 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../features/activity/activity_page.dart';
@@ -7,6 +11,7 @@ import '../features/home/home_page.dart';
 import '../features/meal_log/meal_log_page.dart';
 import '../features/weight/weight_page.dart';
 import '../services/health_connect_service.dart';
+import '../services/ai_service.dart';
 import '../state/diet_controller.dart';
 
 class DietCoachApp extends StatefulWidget {
@@ -90,6 +95,10 @@ class _DietCoachAppState extends State<DietCoachApp> {
       scaffoldBackgroundColor: colors.surface,
       appBarTheme: const AppBarTheme(scrolledUnderElevation: 0),
       cardTheme: CardThemeData(
+          color: colors.brightness == Brightness.dark
+              ? colors.surfaceContainerHigh
+              : colors.surfaceContainerLow,
+          surfaceTintColor: Colors.transparent,
           elevation: 0,
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))));
@@ -162,6 +171,10 @@ class _AppShellState extends State<_AppShell> {
     }
   }
 
+  void _showAiCoachDialog() {
+    showDialog<void>(context: context, builder: (_) => const _AiCoachDialog());
+  }
+
   @override
   Widget build(BuildContext context) {
     final pages = [
@@ -172,6 +185,14 @@ class _AppShellState extends State<_AppShell> {
     ];
     return Scaffold(
         body: SafeArea(child: pages[_selectedIndex]),
+        floatingActionButton: _selectedIndex == 1
+            ? null
+            : FloatingActionButton.small(
+                heroTag: 'ai_health_coach',
+                tooltip: 'AI 健康教練',
+                onPressed: _showAiCoachDialog,
+                child: const Icon(Icons.auto_awesome),
+              ),
         bottomNavigationBar: NavigationBar(
             selectedIndex: _selectedIndex,
             onDestinationSelected: (index) =>
@@ -195,6 +216,149 @@ class _AppShellState extends State<_AppShell> {
                   label: '設定'),
             ]));
   }
+}
+
+class _AiCoachDialog extends StatefulWidget {
+  const _AiCoachDialog();
+
+  @override
+  State<_AiCoachDialog> createState() => _AiCoachDialogState();
+}
+
+class _AiCoachDialogState extends State<_AiCoachDialog> {
+  final _question = TextEditingController();
+  final List<_CoachMessage> _messages = [];
+  var _loading = false;
+
+  @override
+  void dispose() {
+    _question.dispose();
+    super.dispose();
+  }
+
+  String _appContext(DietController diet) {
+    final today = DateTime.now();
+    final meals = diet.mealsFor(today);
+    final mealNames =
+        meals.isEmpty ? '今天尚未記錄餐點' : meals.map((meal) => meal.name).join('、');
+    return '''
+目前體重：${diet.currentWeight?.toStringAsFixed(1) ?? '尚未記錄'} kg
+身高：${diet.heightCm.toStringAsFixed(0)} cm；BMI：${diet.bmi?.toStringAsFixed(1) ?? '尚無'}
+目標體重：${diet.weightTarget.toStringAsFixed(1)} kg
+每日飲食熱量：${diet.caloriesFor(today)} / ${diet.calorieTarget} cal
+每日蛋白質：${diet.proteinFor(today).toStringAsFixed(0)} / ${diet.proteinTarget.toStringAsFixed(0)} g
+今日餐點：$mealNames
+今日步數：${diet.totalStepsToday}；運動分鐘：${diet.totalExerciseMinutesToday}
+今日活動消耗：${diet.estimatedActivityCalories} / ${diet.activeCalorieTarget} cal
+''';
+  }
+
+  Future<void> _send() async {
+    final value = _question.text.trim();
+    if (value.isEmpty || _loading) return;
+    final diet = DietScope.of(context);
+    setState(() {
+      _messages.add(_CoachMessage(value, isUser: true));
+      _question.clear();
+      _loading = true;
+    });
+    try {
+      final answer = await AiService().createHealthCoachAnswer(
+          question: value, userContext: _appContext(diet));
+      if (!mounted) return;
+      setState(() => _messages.add(_CoachMessage(answer, isUser: false)));
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _messages.add(_CoachMessage(
+          error is AiServiceException ? error.message : '暫時無法取得 AI 回覆，請稍後再試。',
+          isUser: false)));
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: const Row(children: [
+        Icon(Icons.auto_awesome),
+        SizedBox(width: 10),
+        Text('AI 健康教練'),
+      ]),
+      content: SizedBox(
+        width: 420,
+        height: 390,
+        child: Column(children: [
+          const Align(
+              alignment: Alignment.centerLeft,
+              child: Text('可詢問健身、飲食與一般健康管理；AI 會參考你的 App 資料。')),
+          const SizedBox(height: 12),
+          Expanded(
+              child: _messages.isEmpty
+                  ? Center(
+                      child: Text('例如：今天的蛋白質夠嗎？\n我該怎麼安排運動？',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.bodyLarge))
+                  : ListView.separated(
+                      itemCount: _messages.length + (_loading ? 1 : 0),
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        if (index == _messages.length) {
+                          return const Align(
+                              alignment: Alignment.centerLeft,
+                              child: Padding(
+                                  padding: EdgeInsets.all(8),
+                                  child: SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2))));
+                        }
+                        final message = _messages[index];
+                        return Align(
+                            alignment: message.isUser
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                    color: message.isUser
+                                        ? scheme.primaryContainer
+                                        : scheme.surfaceContainerHighest,
+                                    borderRadius: BorderRadius.circular(14)),
+                                child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 9),
+                                    child: Text(message.text))));
+                      })),
+          const SizedBox(height: 10),
+          Row(children: [
+            Expanded(
+                child: TextField(
+                    controller: _question,
+                    onSubmitted: (_) => _send(),
+                    textInputAction: TextInputAction.send,
+                    decoration: const InputDecoration(
+                        hintText: '輸入健康或健身問題', border: OutlineInputBorder()))),
+            IconButton.filled(
+                tooltip: '送出',
+                onPressed: _loading ? null : _send,
+                icon: const Icon(Icons.send))
+          ])
+        ]),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context), child: const Text('關閉')),
+      ],
+    );
+  }
+}
+
+class _CoachMessage {
+  const _CoachMessage(this.text, {required this.isUser});
+  final String text;
+  final bool isUser;
 }
 
 class _SettingsPage extends StatelessWidget {
@@ -515,6 +679,71 @@ class _BackupSettingsPageState extends State<_BackupSettingsPage> {
     await _loadBackupTime();
   }
 
+  Future<void> _exportBackupFile() async {
+    final now = DateTime.now();
+    final fileName =
+        'light-coach-backup-${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}.json';
+    try {
+      final path = await FilePicker.saveFile(
+        dialogTitle: '選擇備份檔儲存位置',
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+        bytes: Uint8List.fromList(
+            utf8.encode(DietScope.of(context).exportBackupDocument(now))),
+      );
+      if (!mounted || path == null) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('備份檔已儲存。')));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('無法儲存備份檔，請再試一次。')));
+    }
+  }
+
+  Future<void> _restoreBackupFile() async {
+    try {
+      final picked = await FilePicker.pickFiles(
+        dialogTitle: '選擇要還原的備份檔',
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+        withData: true,
+      );
+      if (!mounted || picked == null || picked.files.isEmpty) return;
+      final bytes = picked.files.first.bytes;
+      if (bytes == null) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('讀取備份檔失敗。')));
+        return;
+      }
+      final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+                  title: const Text('還原選取的備份檔？'),
+                  content: const Text('目前的飲食、體重、目標與外觀設定會被備份內容覆蓋。'),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.pop(dialogContext),
+                        child: const Text('取消')),
+                    FilledButton(
+                        onPressed: () => Navigator.pop(dialogContext, true),
+                        child: const Text('還原')),
+                  ]));
+      if (!mounted || confirmed != true) return;
+      final restored =
+          await DietScope.of(context).restoreBackupDocument(utf8.decode(bytes));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(restored ? '已還原備份檔。' : '這不是可用的備份檔。')));
+      await _loadBackupTime();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('無法還原備份檔，請確認檔案內容。')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
       appBar: AppBar(title: const Text('本機備份與還原')),
@@ -546,16 +775,38 @@ class _BackupSettingsPageState extends State<_BackupSettingsPage> {
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Text('備份檔',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 6),
+                      const Text('選擇手機或雲端文件位置，保存可攜式 JSON 備份檔。'),
+                      const SizedBox(height: 16),
+                      FilledButton.icon(
+                          onPressed: _exportBackupFile,
+                          icon: const Icon(Icons.upload_file_outlined),
+                          label: const Text('選擇位置儲存備份檔')),
+                    ]))),
+        const SizedBox(height: 14),
+        Card(
+            child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text('還原資料',
                           style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 6),
-                      const Text('可還原這台裝置上最近建立的一份備份。'),
+                      const Text('可還原本機最近備份，或選取先前保存的備份檔。'),
                       const SizedBox(height: 16),
                       OutlinedButton.icon(
                           onPressed:
                               _backupTime == null ? null : _restoreBackup,
                           icon: const Icon(Icons.restore),
                           label: const Text('還原最近備份')),
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                          onPressed: _restoreBackupFile,
+                          icon: const Icon(Icons.folder_open_outlined),
+                          label: const Text('選擇備份檔還原')),
                     ]))),
       ]));
 

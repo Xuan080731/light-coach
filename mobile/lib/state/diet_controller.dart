@@ -5,8 +5,53 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/diet_models.dart';
 
+enum TrackingMode {
+  mealLogOnly,
+  healthConnect,
+}
+
+extension TrackingModeLabel on TrackingMode {
+  String get label => switch (this) {
+        TrackingMode.mealLogOnly => '單純飲食紀錄',
+        TrackingMode.healthConnect => '連結 Health Connect',
+      };
+}
+
+enum AppThemeColor {
+  materialYou,
+  forest,
+  ocean,
+  plum,
+  amber,
+}
+
+extension AppThemeColorLabel on AppThemeColor {
+  String get label => switch (this) {
+        AppThemeColor.materialYou => 'Material You',
+        AppThemeColor.forest => '森林綠',
+        AppThemeColor.ocean => '海洋藍',
+        AppThemeColor.plum => '紫莓色',
+        AppThemeColor.amber => '琥珀色',
+      };
+}
+
+enum AppBrightnessMode {
+  system,
+  light,
+  dark,
+}
+
+extension AppBrightnessModeLabel on AppBrightnessMode {
+  String get label => switch (this) {
+        AppBrightnessMode.system => '跟隨系統',
+        AppBrightnessMode.light => '淺色模式',
+        AppBrightnessMode.dark => '深色模式',
+      };
+}
+
 class DietController extends ChangeNotifier {
   static const _storageKey = 'diet_coach_data_v2';
+  static const _backupKey = 'diet_coach_local_backup_v1';
 
   List<MealEntry> _meals = [];
   List<WeightEntry> _weights = [];
@@ -18,12 +63,13 @@ class DietController extends ChangeNotifier {
   double heightCm = 165;
   int age = 30;
   String biologicalSex = 'female';
-  int manualSteps = 0;
   int exerciseMinutes = 0;
-  String exerciseType = '快走';
   int syncedSteps = 0;
   int syncedActiveCalories = 0;
   String activityDate = '';
+  TrackingMode? trackingMode;
+  AppThemeColor themeColor = AppThemeColor.materialYou;
+  AppBrightnessMode brightnessMode = AppBrightnessMode.system;
 
   List<MealEntry> get meals => List.unmodifiable(_meals);
   List<WeightEntry> get weights => List.unmodifiable(_weights);
@@ -32,15 +78,12 @@ class DietController extends ChangeNotifier {
   double? get bmi => currentWeight == null || heightCm <= 0
       ? null
       : currentWeight! / ((heightCm / 100) * (heightCm / 100));
-  int get totalStepsToday => _isTodayActivity
-      ? [manualSteps, syncedSteps].reduce((a, b) => a > b ? a : b)
-      : 0;
+  int get totalStepsToday => _isTodayActivity ? syncedSteps : 0;
   int get totalExerciseMinutesToday => _isTodayActivity ? exerciseMinutes : 0;
   int get estimatedActivityCalories {
     if (!_isTodayActivity) return 0;
     final manualEstimate =
-        (manualSteps * 0.04 + exerciseMinutes * exerciseCaloriesPerMinute)
-            .round();
+        (exerciseMinutes * exerciseCaloriesPerMinute).round();
     return syncedActiveCalories > manualEstimate
         ? syncedActiveCalories
         : manualEstimate;
@@ -55,6 +98,8 @@ class DietController extends ChangeNotifier {
   }
 
   int get estimatedTotalBurned => estimatedBmr + estimatedActivityCalories;
+  bool get usesHealthConnect => trackingMode == TrackingMode.healthConnect;
+  bool get hasChosenTrackingMode => trackingMode != null;
   bool get _isTodayActivity => activityDate == _dateKey(DateTime.now());
 
   Future<void> load() async {
@@ -63,30 +108,7 @@ class DietController extends ChangeNotifier {
         prefs.getString(_storageKey) ?? prefs.getString('diet_coach_data_v1');
     if (raw == null) return;
     try {
-      final data = jsonDecode(raw) as Map<String, dynamic>;
-      _meals = (data['meals'] as List<dynamic>? ?? [])
-          .map((item) => MealEntry.fromJson(item as Map<String, dynamic>))
-          .toList();
-      _weights = (data['weights'] as List<dynamic>? ?? [])
-          .map((item) => WeightEntry.fromJson(item as Map<String, dynamic>))
-          .toList()
-        ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
-      calorieTarget = (data['calorieTarget'] as num? ?? 1800).round();
-      proteinTarget = (data['proteinTarget'] as num? ?? 90).toDouble();
-      weightTarget = (data['weightTarget'] as num? ?? 65).toDouble();
-      activeCalorieTarget =
-          (data['activeCalorieTarget'] as num? ?? 300).round();
-      weeklyLossKg = (data['weeklyLossKg'] as num? ?? 0.3).toDouble();
-      heightCm = (data['heightCm'] as num? ?? 165).toDouble();
-      age = (data['age'] as num? ?? 30).round();
-      biologicalSex = data['biologicalSex'] as String? ?? 'female';
-      manualSteps = (data['manualSteps'] as num? ?? 0).round();
-      exerciseMinutes = (data['exerciseMinutes'] as num? ?? 0).round();
-      exerciseType = data['exerciseType'] as String? ?? '快走';
-      syncedSteps = (data['syncedSteps'] as num? ?? 0).round();
-      syncedActiveCalories =
-          (data['syncedActiveCalories'] as num? ?? 0).round();
-      activityDate = data['activityDate'] as String? ?? '';
+      _applyData(jsonDecode(raw) as Map<String, dynamic>);
       notifyListeners();
     } catch (_) {
       // Invalid local data is ignored so the app remains usable.
@@ -126,11 +148,22 @@ class DietController extends ChangeNotifier {
     await _commit();
   }
 
-  Future<void> updateMeal({required String id, required String name, required String mealType, required int calories, required double protein}) async {
+  Future<void> updateMeal(
+      {required String id,
+      required String name,
+      required String mealType,
+      required int calories,
+      required double protein}) async {
     final index = _meals.indexWhere((entry) => entry.id == id);
     if (index == -1) return;
     final previous = _meals[index];
-    _meals[index] = MealEntry(id: previous.id, name: name.trim(), mealType: mealType, calories: calories, protein: protein, loggedAt: previous.loggedAt);
+    _meals[index] = MealEntry(
+        id: previous.id,
+        name: name.trim(),
+        mealType: mealType,
+        calories: calories,
+        protein: protein,
+        loggedAt: previous.loggedAt);
     await _commit();
   }
 
@@ -177,26 +210,10 @@ class DietController extends ChangeNotifier {
     await _commit();
   }
 
-  double get exerciseCaloriesPerMinute => switch (exerciseType) {
-        '散步' => 3.0,
-        '快走' => 4.5,
-        '慢跑' => 8.5,
-        '跑步' => 10.5,
-        '單車' => 7.0,
-        '重訓' => 6.0,
-        '游泳' => 9.0,
-        '瑜伽／伸展' => 3.0,
-        '有氧舞蹈' => 7.0,
-        '球類運動' => 8.0,
-        '間歇訓練' => 11.0,
-        _ => 5.0,
-      };
-  Future<void> updateManualActivity(
-      {required int steps, required int minutes, required String type}) async {
+  double get exerciseCaloriesPerMinute => 6.0;
+  Future<void> updateManualActivity({required int minutes}) async {
     activityDate = _dateKey(DateTime.now());
-    manualSteps = steps;
     exerciseMinutes = minutes;
-    exerciseType = type;
     await _commit();
   }
 
@@ -208,6 +225,57 @@ class DietController extends ChangeNotifier {
     await _commit();
   }
 
+  Future<void> setTrackingMode(TrackingMode mode) async {
+    trackingMode = mode;
+    await _commit();
+  }
+
+  Future<void> updateTheme(
+      {required AppThemeColor color, required AppBrightnessMode brightness}) async {
+    themeColor = color;
+    brightnessMode = brightness;
+    await _commit();
+  }
+
+  Future<DateTime?> createLocalBackup() async {
+    final createdAt = DateTime.now();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+        _backupKey,
+        jsonEncode({
+          'createdAt': createdAt.toIso8601String(),
+          'data': _toJson(),
+        }));
+    return createdAt;
+  }
+
+  Future<DateTime?> localBackupTime() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_backupKey);
+    if (raw == null) return null;
+    try {
+      final value = jsonDecode(raw) as Map<String, dynamic>;
+      return DateTime.tryParse(value['createdAt'] as String? ?? '');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> restoreLocalBackup() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_backupKey);
+    if (raw == null) return false;
+    try {
+      final backup = jsonDecode(raw) as Map<String, dynamic>;
+      _applyData(backup['data'] as Map<String, dynamic>);
+      await _save();
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _commit() async {
     await _save();
     notifyListeners();
@@ -217,24 +285,66 @@ class DietController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
         _storageKey,
-        jsonEncode({
-          'meals': _meals.map((entry) => entry.toJson()).toList(),
-          'weights': _weights.map((entry) => entry.toJson()).toList(),
-          'calorieTarget': calorieTarget,
-          'proteinTarget': proteinTarget,
-          'weightTarget': weightTarget,
-          'activeCalorieTarget': activeCalorieTarget,
-          'weeklyLossKg': weeklyLossKg,
-          'heightCm': heightCm,
-          'age': age,
-          'biologicalSex': biologicalSex,
-          'manualSteps': manualSteps,
-          'exerciseMinutes': exerciseMinutes,
-          'exerciseType': exerciseType,
-          'syncedSteps': syncedSteps,
-          'syncedActiveCalories': syncedActiveCalories,
-          'activityDate': activityDate,
-        }));
+        jsonEncode(_toJson()));
+  }
+
+  Map<String, dynamic> _toJson() => {
+        'meals': _meals.map((entry) => entry.toJson()).toList(),
+        'weights': _weights.map((entry) => entry.toJson()).toList(),
+        'calorieTarget': calorieTarget,
+        'proteinTarget': proteinTarget,
+        'weightTarget': weightTarget,
+        'activeCalorieTarget': activeCalorieTarget,
+        'weeklyLossKg': weeklyLossKg,
+        'heightCm': heightCm,
+        'age': age,
+        'biologicalSex': biologicalSex,
+        'exerciseMinutes': exerciseMinutes,
+        'syncedSteps': syncedSteps,
+        'syncedActiveCalories': syncedActiveCalories,
+        'activityDate': activityDate,
+        'trackingMode': trackingMode?.name,
+        'themeColor': themeColor.name,
+        'brightnessMode': brightnessMode.name,
+      };
+
+  void _applyData(Map<String, dynamic> data) {
+    _meals = (data['meals'] as List<dynamic>? ?? [])
+        .map((item) => MealEntry.fromJson(item as Map<String, dynamic>))
+        .toList();
+    _weights = (data['weights'] as List<dynamic>? ?? [])
+        .map((item) => WeightEntry.fromJson(item as Map<String, dynamic>))
+        .toList()
+      ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
+    calorieTarget = (data['calorieTarget'] as num? ?? 1800).round();
+    proteinTarget = (data['proteinTarget'] as num? ?? 90).toDouble();
+    weightTarget = (data['weightTarget'] as num? ?? 65).toDouble();
+    activeCalorieTarget = (data['activeCalorieTarget'] as num? ?? 300).round();
+    weeklyLossKg = (data['weeklyLossKg'] as num? ?? 0.3).toDouble();
+    heightCm = (data['heightCm'] as num? ?? 165).toDouble();
+    age = (data['age'] as num? ?? 30).round();
+    biologicalSex = data['biologicalSex'] as String? ?? 'female';
+    exerciseMinutes = (data['exerciseMinutes'] as num? ?? 0).round();
+    syncedSteps = (data['syncedSteps'] as num? ?? 0).round();
+    syncedActiveCalories = (data['syncedActiveCalories'] as num? ?? 0).round();
+    activityDate = data['activityDate'] as String? ?? '';
+    trackingMode = switch (data['trackingMode'] as String?) {
+      'mealLogOnly' => TrackingMode.mealLogOnly,
+      'healthConnect' => TrackingMode.healthConnect,
+      _ => null,
+    };
+    themeColor = switch (data['themeColor'] as String?) {
+      'forest' => AppThemeColor.forest,
+      'ocean' => AppThemeColor.ocean,
+      'plum' => AppThemeColor.plum,
+      'amber' => AppThemeColor.amber,
+      _ => AppThemeColor.materialYou,
+    };
+    brightnessMode = switch (data['brightnessMode'] as String?) {
+      'light' => AppBrightnessMode.light,
+      'dark' => AppBrightnessMode.dark,
+      _ => AppBrightnessMode.system,
+    };
   }
 
   static bool _isSameDay(DateTime a, DateTime b) =>
@@ -243,6 +353,13 @@ class DietController extends ChangeNotifier {
       '${date.year}-${date.month}-${date.day}';
 }
 
+/// Makes the application state available to the widget tree.
+///
+/// This intentionally manages [DietController] notifications itself instead
+/// of extending `InheritedNotifier`. A controller notification can occur just
+/// as a dialog route is being removed; keeping the notifier element from being
+/// disposed in that transition prevents Flutter's `_dependents.isEmpty`
+/// assertion from being triggered.
 class DietScope extends StatefulWidget {
   const DietScope({super.key, required this.controller, required this.child});
 
@@ -287,24 +404,20 @@ class _DietScopeState extends State<DietScope> {
   }
 
   void _handleChange() {
-    if (mounted) {
-      setState(() {});
-    }
+    if (mounted) setState(() {});
   }
 
   @override
-  Widget build(BuildContext context) {
-    return _DietScopeInherited(controller: _controller, child: widget.child);
-  }
+  Widget build(BuildContext context) =>
+      _DietScopeInherited(controller: _controller, child: widget.child);
 }
 
 class _DietScopeInherited extends InheritedWidget {
   const _DietScopeInherited(
-      {super.key, required this.controller, required super.child});
+      {required this.controller, required super.child});
 
   final DietController controller;
 
   @override
-  bool updateShouldNotify(covariant _DietScopeInherited oldWidget) =>
-      controller != oldWidget.controller;
+  bool updateShouldNotify(covariant _DietScopeInherited oldWidget) => true;
 }

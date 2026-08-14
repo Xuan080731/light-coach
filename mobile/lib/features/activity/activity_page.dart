@@ -24,7 +24,7 @@ class ActivityPage extends StatelessWidget {
             child: Column(children: [
           ListTile(
               leading: const Icon(Icons.local_fire_department_outlined),
-              title: const Text('今日運動額外消耗'),
+              title: const Text('今日消耗卡路里'),
               subtitle: Text(diet.hasHealthSyncToday
                   ? '已同步 Health Connect；未同步部分採手動估算。'
                   : '依運動時間估算。'),
@@ -48,7 +48,7 @@ class ActivityPage extends StatelessWidget {
                 ?.copyWith(fontWeight: FontWeight.bold)),
         const SizedBox(height: 6),
         Text(
-            'AI 計畫的運動額外消耗目標：${diet.activeCalorieTarget} kcal／日；目前 ${diet.estimatedActivityCalories} kcal。'),
+            'AI 計畫的活動消耗目標：${diet.activeCalorieTarget} kcal／日；目前 ${diet.estimatedActivityCalories} kcal。'),
       ]),
     );
   }

@@ -179,7 +179,7 @@ class AiService {
         : '使用者指定的目標體重是 ${desiredWeight.toStringAsFixed(1)} kg，請以此為目標。';
     final prompt =
         '''你是一般健康管理的減重教練，不提供醫療診斷。使用者資料：體重 ${currentWeight.toStringAsFixed(1)} kg、身高 ${heightCm.toStringAsFixed(0)} cm、年齡 $age、生理性別 $sex、BMI ${bmi.toStringAsFixed(1)}。$goalInstruction
-請規劃每日熱量、蛋白質與運動目標。`active_calories` 是每日「運動額外消耗」的 kcal 目標，不是全天總消耗；一般減重計畫請設定在 300 至 500 kcal，且在 summary 清楚說明這是額外運動消耗。只輸出 JSON：
+請規劃每日熱量、蛋白質與運動目標。`active_calories` 是每日「活動消耗」的 kcal 目標，不是全天總消耗，也不會增加飲食熱量額度；一般減重計畫請設定在 300 至 500 kcal，且在 summary 清楚說明這是活動消耗目標。只輸出 JSON：
 {"goal_weight_kg":數字,"weekly_loss_kg":0.1至0.75的數字,"daily_calories":整數,"protein_g":數字,"active_calories":整數,"summary":"繁體中文的簡短說明與提醒"}
 不可建議極端節食；若資料不足或可能需要專業協助，請在 summary 說明。''';
     final raw = await _requestText(settings, apiKey, prompt);
@@ -233,7 +233,7 @@ class AiService {
     final prompt = '''你是一般健康管理的飲食教練。依以下今日資料給一則務實、簡短、不帶醫療診斷的繁體中文建議。
 餐點：$meals
 熱量：$caloriesConsumed / $calorieTarget kcal；蛋白質：${proteinConsumed.toStringAsFixed(0)} / ${proteinTarget.toStringAsFixed(0)} g。
-步數：$steps；運動時間：$exerciseMinutes 分鐘；運動額外消耗：$activeCalories / $activeCaloriesTarget kcal。
+步數：$steps；運動時間：$exerciseMinutes 分鐘；消耗卡路里：$activeCalories / $activeCaloriesTarget kcal。
 目前減重目標體重：${goalWeight.toStringAsFixed(1)} kg。
 只輸出 JSON：{"headline":"12字內標題","advice":"1至2句具體建議"}。不要危險節食或醫療建議。''';
     final raw = await _requestText(settings, apiKey, prompt);
@@ -254,6 +254,9 @@ class AiService {
   Future<String> createHealthCoachAnswer({
     required String question,
     required String userContext,
+    String conversationHistory = '',
+    Uint8List? imageBytes,
+    String? imageMimeType,
   }) async {
     final settings = await _settingsStore.load();
     final apiKey = await _settingsStore.readApiKey();
@@ -274,7 +277,16 @@ $userContext
 $question
 
 只回傳 JSON：{"answer":"回答內容"}''';
-    final raw = await _requestText(settings, apiKey, prompt);
+    if (imageBytes != null && imageBytes.lengthInBytes > 8 * 1024 * 1024) {
+      throw const AiServiceException('圖片請控制在 8 MB 以內後再試一次。');
+    }
+    final contextualPrompt = conversationHistory.trim().isEmpty
+        ? prompt
+        : '$prompt\n\n先前對話紀錄（只在與目前問題相關時參考）：\n$conversationHistory';
+    final raw = imageBytes == null
+        ? await _requestText(settings, apiKey, contextualPrompt)
+        : await _requestTextWithImage(settings, apiKey, contextualPrompt,
+            base64Encode(imageBytes), imageMimeType ?? 'image/jpeg');
     try {
       final data = jsonDecode(raw
           .trim()
@@ -495,6 +507,121 @@ $question
         throw const AiServiceException('Claude 沒有回傳可讀取的計畫。');
     }
     throw const AiServiceException('AI 沒有回傳可讀取的計畫。');
+  }
+
+  Future<String> _requestTextWithImage(AiSettings s, String key, String prompt,
+      String image, String mime) async {
+    switch (s.provider) {
+      case AiProvider.openAiResponses:
+        final raw = await _post('${s.endpoint}/responses', {
+          'Authorization': 'Bearer $key'
+        }, {
+          'model': s.model,
+          'store': false,
+          'input': [
+            {
+              'role': 'user',
+              'content': [
+                {'type': 'input_text', 'text': prompt},
+                {
+                  'type': 'input_image',
+                  'image_url': 'data:$mime;base64,$image'
+                },
+              ],
+            }
+          ],
+          'text': {
+            'format': {'type': 'json_object'}
+          },
+        });
+        return _responseText(raw);
+      case AiProvider.openAiCompatible:
+        final raw = await _post('${s.endpoint}/chat/completions', {
+          'Authorization': 'Bearer $key'
+        }, {
+          'model': s.model,
+          'messages': [
+            {
+              'role': 'user',
+              'content': [
+                {'type': 'text', 'text': prompt},
+                {
+                  'type': 'image_url',
+                  'image_url': {'url': 'data:$mime;base64,$image'}
+                },
+              ]
+            },
+          ],
+          'response_format': {'type': 'json_object'}
+        });
+        final data = jsonDecode(raw) as Map<String, dynamic>;
+        final choices = data['choices'] as List<dynamic>? ?? [];
+        final content = choices.isEmpty
+            ? null
+            : ((choices.first as Map<String, dynamic>)['message']
+                as Map<String, dynamic>?)?['content'];
+        if (content is String) return content;
+        throw const AiServiceException('AI 回覆中沒有可讀取的內容。');
+      case AiProvider.gemini:
+        final raw =
+            await _post('${s.endpoint}/models/${s.model}:generateContent', {
+          'x-goog-api-key': key
+        }, {
+          'contents': [
+            {
+              'parts': [
+                {'text': prompt},
+                {
+                  'inlineData': {'mimeType': mime, 'data': image}
+                },
+              ]
+            }
+          ],
+          'generationConfig': {'responseMimeType': 'application/json'}
+        });
+        final data = jsonDecode(raw) as Map<String, dynamic>;
+        final candidates = data['candidates'] as List<dynamic>? ?? [];
+        final parts = candidates.isEmpty
+            ? null
+            : (((candidates.first as Map<String, dynamic>)['content']
+                as Map<String, dynamic>?)?['parts'] as List<dynamic>?);
+        final text = parts?.isEmpty == false
+            ? (parts!.first as Map<String, dynamic>)['text']
+            : null;
+        if (text is String) return text;
+        throw const AiServiceException('Gemini 回覆中沒有可讀取的內容。');
+      case AiProvider.anthropic:
+        final raw = await _post('${s.endpoint}/messages', {
+          'x-api-key': key,
+          'anthropic-version': '2023-06-01'
+        }, {
+          'model': s.model,
+          'max_tokens': 1024,
+          'messages': [
+            {
+              'role': 'user',
+              'content': [
+                {
+                  'type': 'image',
+                  'source': {
+                    'type': 'base64',
+                    'media_type': mime,
+                    'data': image
+                  }
+                },
+                {'type': 'text', 'text': prompt},
+              ]
+            }
+          ],
+        });
+        final data = jsonDecode(raw) as Map<String, dynamic>;
+        final content = data['content'] as List<dynamic>? ?? [];
+        final text = content.isEmpty
+            ? null
+            : (content.first as Map<String, dynamic>)['text'];
+        if (text is String) return text;
+        throw const AiServiceException('Claude 回覆中沒有可讀取的內容。');
+    }
   }
 
   String _responseText(String raw) {

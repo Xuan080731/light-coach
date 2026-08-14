@@ -88,7 +88,7 @@ class AiGoalPlanPage extends StatelessWidget {
               trailing: Text(
                   '${diet.calorieTarget} kcal／${diet.proteinTarget.toStringAsFixed(0)} g')),
           ListTile(
-              title: const Text('每日運動額外消耗目標'),
+              title: const Text('每日活動消耗目標'),
               trailing: Text('${diet.activeCalorieTarget} kcal')),
         ])),
         const SizedBox(height: 14),
@@ -235,7 +235,7 @@ class AiGoalPlanPage extends StatelessWidget {
                         Text('每週減重：${plan.weeklyLossKg.toStringAsFixed(1)} kg'),
                         Text('每日熱量：${plan.dailyCalories} kcal'),
                         Text('每日蛋白質：${plan.proteinGrams.toStringAsFixed(0)} g'),
-                        Text('每日運動額外消耗：${plan.activeCalories} kcal'),
+                        Text('每日活動消耗：${plan.activeCalories} kcal'),
                       ]),
                   actions: [
                     TextButton(

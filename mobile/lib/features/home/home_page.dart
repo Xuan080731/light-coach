@@ -54,10 +54,9 @@ class _HomePageState extends State<HomePage> {
     final calories = diet.caloriesFor(today);
     final protein = diet.proteinFor(today);
     final meals = diet.mealsFor(today);
-    final exerciseCredit =
-        diet.usesHealthConnect ? diet.estimatedActivityCalories : 0;
-    final availableCalories = diet.calorieTarget + exerciseCredit;
-    final remaining = availableCalories - calories;
+    // Activity calories are shown for reference only. They never increase the
+    // daily food allowance, so the calorie target stays predictable.
+    final remaining = diet.calorieTarget - calories;
     final signature =
         '${_dateKey(today)}|${diet.trackingMode}|${meals.map((meal) => '${meal.id}:${meal.calories}:${meal.protein}').join(',')}|$calories|$protein|${diet.totalStepsToday}|${diet.totalExerciseMinutesToday}|${diet.estimatedActivityCalories}|${diet.calorieTarget}|${diet.proteinTarget}|${diet.activeCalorieTarget}|${diet.weightTarget}';
     if (diet.hasChosenTrackingMode &&
@@ -82,7 +81,6 @@ class _HomePageState extends State<HomePage> {
           _DailyEnergyCard(
               calories: calories,
               baseTarget: diet.calorieTarget,
-              exerciseCredit: exerciseCredit,
               remaining: remaining,
               color: color),
           const SizedBox(height: 12),
@@ -95,7 +93,7 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(height: 12),
           if (diet.usesHealthConnect)
             _ProgressCard(
-                title: '運動額外消耗',
+                title: '消耗卡路里',
                 progress: _progress(
                     diet.estimatedActivityCalories, diet.activeCalorieTarget),
                 value:
@@ -246,19 +244,16 @@ class _DailyEnergyCard extends StatelessWidget {
   const _DailyEnergyCard(
       {required this.calories,
       required this.baseTarget,
-      required this.exerciseCredit,
       required this.remaining,
       required this.color});
 
   final int calories;
   final int baseTarget;
-  final int exerciseCredit;
   final int remaining;
   final ColorScheme color;
 
   @override
   Widget build(BuildContext context) {
-    final hasExerciseCredit = exerciseCredit > 0;
     return Card(
         color: color.primary.withOpacity(
             Theme.of(context).brightness == Brightness.light ? 0.10 : 0.18),
@@ -296,7 +291,7 @@ class _DailyEnergyCard extends StatelessWidget {
                       fontWeight: FontWeight.bold)),
               const SizedBox(height: 16),
               LinearProgressIndicator(
-                  value: _safeProgress(calories, baseTarget + exerciseCredit),
+                  value: _safeProgress(calories, baseTarget),
                   minHeight: 8,
                   borderRadius: BorderRadius.circular(8)),
               const SizedBox(height: 16),
@@ -304,10 +299,6 @@ class _DailyEnergyCard extends StatelessWidget {
                 _EnergyFact(label: '基本目標', value: '$baseTarget kcal'),
                 const SizedBox(width: 12),
                 _EnergyFact(label: '已攝取', value: '$calories kcal'),
-                if (hasExerciseCredit) ...[
-                  const SizedBox(width: 12),
-                  _EnergyFact(label: '運動加回', value: '+$exerciseCredit kcal'),
-                ],
               ]),
             ])));
   }

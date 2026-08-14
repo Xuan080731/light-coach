@@ -133,6 +133,9 @@ class WeightPage extends StatelessWidget {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
+          scrollable: true,
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
           title: const Text('身體資料'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -299,7 +302,7 @@ class WeightPage extends StatelessWidget {
               Text('每週減重：${plan.weeklyLossKg.toStringAsFixed(1)} kg'),
               Text('每日熱量：${plan.dailyCalories} kcal'),
               Text('每日蛋白質：${plan.proteinGrams.toStringAsFixed(0)} g'),
-              Text('每日運動額外消耗：${plan.activeCalories} kcal'),
+              Text('每日活動消耗：${plan.activeCalories} kcal'),
             ],
           ),
           actions: [

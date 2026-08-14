@@ -1,4 +1,5 @@
 import 'package:ai_diet_coach/app/diet_coach_app.dart';
+import 'package:ai_diet_coach/services/ai_coach_history_store.dart';
 import 'package:ai_diet_coach/state/diet_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -15,6 +16,24 @@ void main() {
     await restored.load();
 
     expect(restored.trackingMode, TrackingMode.healthConnect);
+  });
+
+  test('stores and clears AI light coach conversation history', () async {
+    final store = AiCoachHistoryStore();
+    await store.save(const [
+      AiCoachHistoryMessage(text: '今天蛋白質夠嗎？', isUser: true),
+      AiCoachHistoryMessage(text: '還可以補一份優格。', isUser: false),
+      AiCoachHistoryMessage(text: '這張餐點照片呢？', isUser: true, hasImage: true),
+    ]);
+
+    final history = await store.load();
+
+    expect(history, hasLength(3));
+    expect(history.last.hasImage, isTrue);
+    expect(history[1].text, '還可以補一份優格。');
+
+    await store.clear();
+    expect(await store.load(), isEmpty);
   });
 
   test('restores a local backup of diet data and theme preferences', () async {
@@ -90,6 +109,21 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('1800'), findsOneWidget);
+  });
+
+  testWidgets('does not add activity calories to the food allowance',
+      (tester) async {
+    final controller = DietController();
+    await controller.setTrackingMode(TrackingMode.healthConnect);
+    await controller.addMeal(
+        name: '午餐', mealType: '午餐', calories: 200, protein: 20);
+    await controller.updateHealthActivity(steps: 4000, activeCalories: 500);
+
+    await tester.pumpWidget(DietCoachApp(controller: controller));
+    await tester.pump();
+
+    expect(find.text('1600 kcal'), findsOneWidget);
+    expect(find.text('2100 kcal'), findsNothing);
   });
 
   testWidgets('saves a manually entered meal after closing its dialog',

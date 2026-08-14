@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../features/activity/activity_page.dart';
 import '../features/ai/ai_settings_page.dart';
@@ -12,6 +13,7 @@ import '../features/meal_log/meal_log_page.dart';
 import '../features/weight/weight_page.dart';
 import '../services/health_connect_service.dart';
 import '../services/ai_service.dart';
+import '../services/ai_coach_history_store.dart';
 import '../services/meal_reminder_service.dart';
 import '../state/diet_controller.dart';
 
@@ -173,7 +175,8 @@ class _AppShellState extends State<_AppShell> {
   }
 
   void _showAiCoachDialog() {
-    showDialog<void>(context: context, builder: (_) => const _AiCoachDialog());
+    showDialog<void>(
+        context: context, builder: (_) => const _AiLightCoachDialog());
   }
 
   @override
@@ -190,7 +193,7 @@ class _AppShellState extends State<_AppShell> {
             ? null
             : FloatingActionButton.small(
                 heroTag: 'ai_health_coach',
-                tooltip: 'AI 健康教練',
+                tooltip: 'AI輕盈教練',
                 onPressed: _showAiCoachDialog,
                 child: const Icon(Icons.auto_awesome),
               ),
@@ -285,7 +288,7 @@ class _AiCoachDialogState extends State<_AiCoachDialog> {
       title: const Row(children: [
         Icon(Icons.auto_awesome),
         SizedBox(width: 10),
-        Text('AI 健康教練'),
+        Text('AI輕盈教練'),
       ]),
       content: SizedBox(
         width: 420,
@@ -362,6 +365,280 @@ class _CoachMessage {
   final bool isUser;
 }
 
+class _AiLightCoachDialog extends StatefulWidget {
+  const _AiLightCoachDialog();
+
+  @override
+  State<_AiLightCoachDialog> createState() => _AiLightCoachDialogState();
+}
+
+class _AiLightCoachDialogState extends State<_AiLightCoachDialog> {
+  final _question = TextEditingController();
+  final _historyStore = AiCoachHistoryStore();
+  final List<AiCoachHistoryMessage> _messages = [];
+  Uint8List? _imageBytes;
+  String? _imageMimeType;
+  var _loading = false;
+  var _historyReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _restoreHistory();
+  }
+
+  @override
+  void dispose() {
+    _question.dispose();
+    super.dispose();
+  }
+
+  Future<void> _restoreHistory() async {
+    final messages = await _historyStore.load();
+    if (!mounted) return;
+    setState(() {
+      _messages.addAll(messages);
+      _historyReady = true;
+    });
+  }
+
+  Future<void> _saveHistory() => _historyStore.save(_messages);
+
+  Future<void> _clearHistory() async {
+    if (_loading) return;
+    setState(_messages.clear);
+    await _historyStore.clear();
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    if (_loading) return;
+    try {
+      final image = await ImagePicker()
+          .pickImage(source: source, maxWidth: 1800, imageQuality: 82);
+      if (image == null) return;
+      final bytes = await image.readAsBytes();
+      if (!mounted) return;
+      if (bytes.lengthInBytes > 8 * 1024 * 1024) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('圖片請控制在 8 MB 以內後再試一次。')));
+        return;
+      }
+      setState(() {
+        _imageBytes = bytes;
+        _imageMimeType = image.mimeType ?? 'image/jpeg';
+      });
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('無法讀取圖片，請確認相機與相簿權限。')));
+      }
+    }
+  }
+
+  String _appContext(DietController diet) {
+    final today = DateTime.now();
+    final meals = diet.mealsFor(today);
+    final mealNames =
+        meals.isEmpty ? '尚未記錄餐點' : meals.map((meal) => meal.name).join('、');
+    return '''
+目前體重：${diet.currentWeight?.toStringAsFixed(1) ?? '尚未記錄'} kg
+身高：${diet.heightCm.toStringAsFixed(0)} cm；BMI：${diet.bmi?.toStringAsFixed(1) ?? '尚無'}
+目標體重：${diet.weightTarget.toStringAsFixed(1)} kg
+今日飲食熱量：${diet.caloriesFor(today)} / ${diet.calorieTarget} cal
+今日蛋白質：${diet.proteinFor(today).toStringAsFixed(0)} / ${diet.proteinTarget.toStringAsFixed(0)} g
+今日餐點：$mealNames
+今日步數：${diet.totalStepsToday}；運動分鐘：${diet.totalExerciseMinutesToday}
+今日消耗卡路里：${diet.estimatedActivityCalories} / ${diet.activeCalorieTarget} cal
+''';
+  }
+
+  String _conversationContext() => _messages
+      .skip(_messages.length > 12 ? _messages.length - 12 : 0)
+      .map((message) =>
+          '${message.isUser ? '使用者' : '教練'}：${message.text}${message.hasImage ? '（附圖）' : ''}')
+      .join('\n');
+
+  Future<void> _send() async {
+    final typedQuestion = _question.text.trim();
+    final imageBytes = _imageBytes;
+    final imageMimeType = _imageMimeType;
+    if ((typedQuestion.isEmpty && imageBytes == null) || _loading) return;
+    final question =
+        typedQuestion.isEmpty ? '請根據這張圖片提供健康或健身建議。' : typedQuestion;
+    final diet = DietScope.of(context);
+    final history = _conversationContext();
+    setState(() {
+      _messages.add(AiCoachHistoryMessage(
+          text: question, isUser: true, hasImage: imageBytes != null));
+      _question.clear();
+      _imageBytes = null;
+      _imageMimeType = null;
+      _loading = true;
+    });
+    await _saveHistory();
+    try {
+      final answer = await AiService().createHealthCoachAnswer(
+          question: question,
+          userContext: _appContext(diet),
+          conversationHistory: history,
+          imageBytes: imageBytes,
+          imageMimeType: imageMimeType);
+      if (!mounted) return;
+      setState(() =>
+          _messages.add(AiCoachHistoryMessage(text: answer, isUser: false)));
+      await _saveHistory();
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is AiServiceException
+          ? error.message
+          : '暫時無法取得 AI 回覆，請確認網路與 AI 服務設定後再試一次。';
+      setState(() =>
+          _messages.add(AiCoachHistoryMessage(text: message, isUser: false)));
+      await _saveHistory();
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final availableHeight = MediaQuery.sizeOf(context).height -
+        MediaQuery.viewInsetsOf(context).bottom;
+    final contentHeight =
+        (availableHeight * 0.55).clamp(260.0, 460.0).toDouble();
+    return AlertDialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      title: Row(children: [
+        const Icon(Icons.auto_awesome),
+        const SizedBox(width: 10),
+        const Expanded(child: Text('AI輕盈教練')),
+        IconButton(
+            tooltip: '清除對話紀錄',
+            onPressed: _loading || _messages.isEmpty ? null : _clearHistory,
+            icon: const Icon(Icons.delete_outline)),
+      ]),
+      content: SizedBox(
+        width: 420,
+        height: contentHeight,
+        child: Column(children: [
+          const Align(
+              alignment: Alignment.centerLeft,
+              child: Text('可詢問健康、健身與飲食問題；可附上圖片讓教練參考。')),
+          const SizedBox(height: 10),
+          Expanded(
+              child: !_historyReady
+                  ? const Center(child: CircularProgressIndicator())
+                  : _messages.isEmpty
+                      ? Center(
+                          child: Text('例如：今天的蛋白質夠嗎？\n這份餐點適合減脂嗎？',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodyLarge))
+                      : ListView.separated(
+                          itemCount: _messages.length + (_loading ? 1 : 0),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 8),
+                          itemBuilder: (context, index) {
+                            if (index == _messages.length) {
+                              return const Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Padding(
+                                      padding: EdgeInsets.all(8),
+                                      child: SizedBox(
+                                          height: 20,
+                                          width: 20,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2))));
+                            }
+                            final message = _messages[index];
+                            return Align(
+                                alignment: message.isUser
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                                child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                        color: message.isUser
+                                            ? scheme.primaryContainer
+                                            : scheme.surfaceContainerHighest,
+                                        borderRadius:
+                                            BorderRadius.circular(14)),
+                                    child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 9),
+                                        child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              if (message.hasImage) ...[
+                                                const Icon(Icons.image_outlined,
+                                                    size: 18),
+                                                const SizedBox(width: 6),
+                                              ],
+                                              Flexible(
+                                                  child: Text(message.text)),
+                                            ]))));
+                          })),
+          if (_imageBytes != null) ...[
+            const SizedBox(height: 8),
+            Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                    color: scheme.secondaryContainer,
+                    borderRadius: BorderRadius.circular(10)),
+                child: Row(children: [
+                  ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.memory(_imageBytes!,
+                          width: 42, height: 42, fit: BoxFit.cover)),
+                  const SizedBox(width: 8),
+                  const Expanded(child: Text('已附上一張圖片')),
+                  IconButton(
+                      tooltip: '移除圖片',
+                      onPressed: _loading
+                          ? null
+                          : () => setState(() {
+                                _imageBytes = null;
+                                _imageMimeType = null;
+                              }),
+                      icon: const Icon(Icons.close)),
+                ])),
+          ],
+          const SizedBox(height: 8),
+          Row(children: [
+            IconButton(
+                tooltip: '拍照',
+                onPressed:
+                    _loading ? null : () => _pickImage(ImageSource.camera),
+                icon: const Icon(Icons.camera_alt_outlined)),
+            IconButton(
+                tooltip: '從相簿上傳',
+                onPressed:
+                    _loading ? null : () => _pickImage(ImageSource.gallery),
+                icon: const Icon(Icons.photo_library_outlined)),
+            Expanded(
+                child: TextField(
+                    controller: _question,
+                    minLines: 1,
+                    maxLines: 3,
+                    onSubmitted: (_) => _send(),
+                    textInputAction: TextInputAction.send,
+                    decoration: const InputDecoration(
+                        hintText: '輸入健康或健身問題', border: OutlineInputBorder()))),
+            const SizedBox(width: 6),
+            IconButton.filled(
+                tooltip: '送出',
+                onPressed: _loading ? null : _send,
+                icon: const Icon(Icons.send))
+          ])
+        ]),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context), child: const Text('關閉')),
+      ],
+    );
+  }
+}
+
 class _SettingsPage extends StatelessWidget {
   const _SettingsPage();
   @override
@@ -404,7 +681,7 @@ class _SettingsPage extends StatelessWidget {
             leading: const Icon(Icons.favorite_outline),
             title: const Text('Google Health Connect'),
             subtitle: Text(diet.usesHealthConnect
-                ? '已用於計算運動額外消耗'
+                ? '已同步消耗卡路里與步數'
                 : '切換為 Health Connect 模式後可同步'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context)
@@ -655,7 +932,7 @@ Future<TrackingMode?> _showTrackingModePicker(
                         selected: selected,
                         icon: Icons.favorite_outline,
                         title: '連結 Health Connect',
-                        description: '將運動額外消耗納入今日可用熱量。',
+                        description: '同步活動資料與消耗卡路里，不增加每日飲食額度。',
                         onTap: () => setDialogState(
                             () => selected = TrackingMode.healthConnect)),
                   ]),

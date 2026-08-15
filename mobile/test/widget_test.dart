@@ -1,4 +1,5 @@
 import 'package:ai_diet_coach/app/diet_coach_app.dart';
+import 'package:ai_diet_coach/features/about/about_page.dart';
 import 'package:ai_diet_coach/services/ai_coach_history_store.dart';
 import 'package:ai_diet_coach/state/diet_controller.dart';
 import 'package:flutter/material.dart';
@@ -124,6 +125,27 @@ void main() {
 
     expect(find.text('1600 kcal'), findsOneWidget);
     expect(find.text('2100 kcal'), findsNothing);
+  });
+
+  testWidgets('about page exposes product and open source information',
+      (tester) async {
+    await tester
+        .pumpWidget(const MaterialApp(home: AboutPage(enableMotion: false)));
+    await tester.pump();
+
+    expect(find.text('輕盈教練'), findsOneWidget);
+    expect(find.text('目前版本'), findsOneWidget);
+    expect(find.text('本專案授權'), findsOneWidget);
+    expect(find.text('第三方開源授權'), findsOneWidget);
+    expect(find.bySemanticsLabel('互動式輕盈教練標誌'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('本專案授權'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('本專案授權'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('輕盈教練是開源軟體'), findsOneWidget);
+    expect(find.text('授權檔尚待加入'), findsOneWidget);
   });
 
   testWidgets('saves a manually entered meal after closing its dialog',

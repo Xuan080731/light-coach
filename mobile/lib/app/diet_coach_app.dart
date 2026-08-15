@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../features/activity/activity_page.dart';
+import '../features/about/about_page.dart';
 import '../features/ai/ai_settings_page.dart';
 import '../features/home/home_page.dart';
 import '../features/meal_log/meal_log_page.dart';
@@ -704,6 +705,14 @@ class _SettingsPage extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
                 builder: (_) => const _MealReminderSettingsPage()))),
+        const Divider(height: 1),
+        ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('關於輕盈教練'),
+            subtitle: const Text('版本、產品理念與開源授權'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const AboutPage()))),
       ])),
       const SizedBox(height: 28),
       Text('資料與提醒',

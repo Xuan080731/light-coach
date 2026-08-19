@@ -77,7 +77,7 @@ class _AboutPageState extends State<AboutPage> {
 
   String get _versionLabel {
     final info = _packageInfo;
-    if (info == null) return '0.1.0（1）';
+    if (info == null) return '1.0.0（1）';
     return '${info.version}（${info.buildNumber}）';
   }
 
@@ -210,8 +210,8 @@ class _AboutPageState extends State<AboutPage> {
               _AboutCard(children: [
                 ListTile(
                   leading: const Icon(Icons.code_outlined),
-                  title: const Text('本專案授權'),
-                  subtitle: const Text('開源專案；正式授權檔尚待專案擁有者加入'),
+                  title: const Text('開源授權'),
+                  subtitle: const Text('採用 Apache License 2.0；查看完整條款'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => const _ProjectLicensePage())),
@@ -236,12 +236,6 @@ class _AboutPageState extends State<AboutPage> {
                       child: Text('OPEN SOURCE'),
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Text('以 Flutter 與 Material 3 打造',
-                      style: Theme.of(context).textTheme.bodyMedium),
-                  const SizedBox(height: 4),
-                  Text('Copyright © ${DateTime.now().year} 輕盈教練貢獻者',
-                      style: Theme.of(context).textTheme.bodySmall),
                 ]),
               ),
             ]),
@@ -361,17 +355,6 @@ class _InteractiveLogoHero extends StatelessWidget {
           Text('讓健康紀錄更直覺，也更有掌握感',
               style: Theme.of(context).textTheme.bodyLarge,
               textAlign: TextAlign.center),
-          const SizedBox(height: 10),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(Icons.touch_app_outlined,
-                size: 17, color: colors.onSurfaceVariant),
-            const SizedBox(width: 5),
-            Text('拖曳、輕觸或轉動手機試試看',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: colors.onSurfaceVariant)),
-          ]),
         ]),
       );
 }
@@ -427,13 +410,13 @@ class _ProjectLicensePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('本專案授權')),
+      appBar: AppBar(title: const Text('開源授權')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
           Icon(Icons.code_rounded, size: 56, color: colors.primary),
           const SizedBox(height: 14),
-          Text('輕盈教練是開源軟體',
+          Text('輕盈教練採用 Apache License 2.0',
               textAlign: TextAlign.center,
               style: Theme.of(context)
                   .textTheme
@@ -441,7 +424,7 @@ class _ProjectLicensePage extends StatelessWidget {
                   ?.copyWith(fontWeight: FontWeight.w800)),
           const SizedBox(height: 10),
           const Text(
-            '你可以檢視原始碼、參與改善，並依專案最終採用的授權條款使用與散布。',
+            '你可以使用、修改與散布本專案原始碼，包含商業用途。',
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 22),
@@ -453,17 +436,17 @@ class _ProjectLicensePage extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(children: [
-                    Icon(Icons.pending_actions_outlined,
+                    Icon(Icons.verified_outlined,
                         color: colors.onTertiaryContainer),
                     const SizedBox(width: 10),
-                    Text('授權檔尚待加入',
+                    Text('Apache License 2.0',
                         style: TextStyle(
                             color: colors.onTertiaryContainer,
                             fontWeight: FontWeight.w800)),
                   ]),
                   const SizedBox(height: 10),
                   Text(
-                    '目前原始碼儲存庫根目錄尚未包含 LICENSE 檔案，因此此開發版本不宣稱採用特定授權。發布前應由專案擁有者選定授權，並以儲存庫中的 LICENSE 內容為唯一依據。',
+                    '本專案採寬鬆型開源授權，允許個人及商業使用、修改、散布與再授權；散布時請保留 LICENSE 與 NOTICE，並在修改檔案標示變更。',
                     style: TextStyle(color: colors.onTertiaryContainer),
                   ),
                 ],

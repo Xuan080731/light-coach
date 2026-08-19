@@ -47,8 +47,9 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading)
+    if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
     return Scaffold(
       appBar: AppBar(
           title: const Text('AI 分析設定',
@@ -60,7 +61,7 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
                 .titleLarge
                 ?.copyWith(fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
-        const Text('金鑰只保存在這台手機的安全儲存區，App 不會把金鑰傳送到你的後端。'),
+        const Text('金鑰只保存在這台手機的安全儲存區；呼叫功能時會傳送到你選擇的 AI 供應商或自訂 API。'),
         const SizedBox(height: 18),
         DropdownButtonFormField<AiProvider>(
           value: _provider,
@@ -83,6 +84,7 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
         TextField(
             controller: _endpoint,
             keyboardType: TextInputType.url,
+            readOnly: _provider != AiProvider.openAiCompatible,
             decoration: const InputDecoration(
                 labelText: 'API 基底網址',
                 hintText: 'https://...',
@@ -132,6 +134,13 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
     if (_endpoint.text.trim().isEmpty || _model.text.trim().isEmpty) {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('請填寫 API 網址與模型名稱。')));
+      return;
+    }
+    final endpointError =
+        _provider.endpointValidationError(_endpoint.text.trim());
+    if (endpointError != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(endpointError)));
       return;
     }
     await _store.save(

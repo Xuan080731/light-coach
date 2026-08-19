@@ -1,4 +1,4 @@
-package com.example.ai_diet_coach
+package io.github.xuan080731.lightcoach
 
 import android.os.Bundle
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen

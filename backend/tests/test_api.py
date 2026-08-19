@@ -16,13 +16,27 @@ def test_analyze_meal_returns_editable_estimate() -> None:
     body = response.json()
     assert response.status_code == 200
     assert body["total_calories"] > 0
+    assert body["total_fiber_g"] > 0
+    assert all("fiber_g" in item for item in body["items"])
     assert body["confidence"] <= 1
 
 
 def test_daily_advice() -> None:
     response = client.post(
         "/api/v1/coach/daily-advice",
-        json={"calories_consumed": 1120, "calorie_target": 1800, "protein_consumed_g": 58, "protein_target_g": 100},
+        json={
+            "calories_consumed": 1120,
+            "calorie_target": 1800,
+            "protein_consumed_g": 58,
+            "protein_target_g": 100,
+            "carbs_consumed_g": 130,
+            "carbs_target_g": 200,
+            "fat_consumed_g": 35,
+            "fat_target_g": 60,
+            "fiber_consumed_g": 18,
+            "fiber_target_g": 25,
+            "nutrition_score": 82,
+        },
     )
     assert response.status_code == 200
     assert response.json()["remaining_calories"] == 680

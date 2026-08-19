@@ -10,6 +10,7 @@ class FoodItem(BaseModel):
     protein_g: float = Field(ge=0)
     carbs_g: float = Field(ge=0)
     fat_g: float = Field(ge=0)
+    fiber_g: float = Field(default=0, ge=0)
 
 
 class AnalyzeMealRequest(BaseModel):
@@ -23,6 +24,9 @@ class AnalyzeMealResponse(BaseModel):
     items: list[FoodItem]
     total_calories: int
     total_protein_g: float
+    total_carbs_g: float = Field(default=0, ge=0)
+    total_fat_g: float = Field(default=0, ge=0)
+    total_fiber_g: float = Field(default=0, ge=0)
     confidence: float = Field(ge=0, le=1)
     disclaimer: str
 
@@ -32,6 +36,14 @@ class DailyAdviceRequest(BaseModel):
     calorie_target: int = Field(gt=0)
     protein_consumed_g: float = Field(ge=0)
     protein_target_g: float = Field(gt=0)
+    carbs_consumed_g: float = Field(default=0, ge=0)
+    carbs_target_g: float = Field(default=200, gt=0)
+    fat_consumed_g: float = Field(default=0, ge=0)
+    fat_target_g: float = Field(default=60, gt=0)
+    fiber_consumed_g: float = Field(default=0, ge=0)
+    fiber_target_g: float = Field(default=25, gt=0)
+    nutrition_score: int | None = Field(default=None, ge=0, le=100)
+    meals: list[FoodItem] = Field(default_factory=list)
 
 
 class DailyAdviceResponse(BaseModel):

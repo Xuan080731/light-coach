@@ -28,6 +28,29 @@ extension AiProviderLabel on AiProvider {
         AiProvider.gemini => 'gemini-2.5-flash',
         AiProvider.anthropic => 'claude-sonnet-4-20250514',
       };
+
+  String? endpointValidationError(String value) {
+    final endpoint = Uri.tryParse(value.trim());
+    if (endpoint == null ||
+        endpoint.scheme.toLowerCase() != 'https' ||
+        endpoint.host.isEmpty ||
+        endpoint.userInfo.isNotEmpty ||
+        endpoint.query.isNotEmpty ||
+        endpoint.fragment.isNotEmpty) {
+      return 'API 網址必須是有效的 HTTPS 基底網址，且不可包含帳號、查詢參數或片段。';
+    }
+
+    final requiredHost = switch (this) {
+      AiProvider.openAiResponses => 'api.openai.com',
+      AiProvider.gemini => 'generativelanguage.googleapis.com',
+      AiProvider.anthropic => 'api.anthropic.com',
+      AiProvider.openAiCompatible => null,
+    };
+    if (requiredHost != null && endpoint.host.toLowerCase() != requiredHost) {
+      return '此供應商只能連線至 $requiredHost；其他服務請選擇「OpenAI 相容 API（自訂）」。';
+    }
+    return null;
+  }
 }
 
 class AiSettings {
@@ -70,13 +93,19 @@ class AiSettingsStore {
   }
 
   Future<void> save(AiSettings settings, {String? apiKey}) async {
+    final endpointError =
+        settings.provider.endpointValidationError(settings.endpoint);
+    if (endpointError != null) {
+      throw ArgumentError.value(settings.endpoint);
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_providerKey, settings.provider.name);
     await prefs.setString(_endpointKey,
         settings.endpoint.trim().replaceFirst(RegExp(r'/+$'), ''));
     await prefs.setString(_modelKey, settings.model.trim());
-    if (apiKey != null && apiKey.trim().isNotEmpty)
+    if (apiKey != null && apiKey.trim().isNotEmpty) {
       await _secureStorage.write(key: _apiKeyName, value: apiKey.trim());
+    }
   }
 
   Future<bool> hasApiKey() async =>
@@ -95,16 +124,32 @@ class AiMealAnalysis {
   int get totalCalories =>
       items.fold(0, (total, item) => total + item.calories);
   double get totalProtein =>
-      items.fold(0, (total, item) => total + item.protein);
+      items.fold(0.0, (total, item) => total + item.protein);
+  double get totalCarbs => items.fold(0.0, (total, item) => total + item.carbs);
+  double get totalFat => items.fold(0.0, (total, item) => total + item.fat);
+  double get totalFiber => items.fold(0.0, (total, item) => total + item.fiber);
+  double get totalPortionGrams =>
+      items.fold(0.0, (total, item) => total + item.estimatedGrams);
   String get suggestedName => items.map((item) => item.name).join('、');
 }
 
 class AiFoodItem {
-  const AiFoodItem(
-      {required this.name, required this.calories, required this.protein});
+  const AiFoodItem({
+    required this.name,
+    required this.estimatedGrams,
+    required this.calories,
+    required this.protein,
+    required this.carbs,
+    required this.fat,
+    required this.fiber,
+  });
   final String name;
+  final double estimatedGrams;
   final int calories;
   final double protein;
+  final double carbs;
+  final double fat;
+  final double fiber;
 }
 
 class AiWeightPlan {
@@ -140,13 +185,17 @@ class AiService {
   Future<AiMealAnalysis> analyzeImage(
       {required Uint8List imageBytes, required String mimeType}) async {
     final settings = await _settingsStore.load();
+    _validateEndpoint(settings);
     final apiKey = await _settingsStore.readApiKey();
-    if (apiKey == null || apiKey.isEmpty)
+    if (apiKey == null || apiKey.isEmpty) {
       throw const AiServiceException('請先在「目標」頁面的 AI 分析設定輸入 API 金鑰。');
-    if (settings.model.trim().isEmpty)
+    }
+    if (settings.model.trim().isEmpty) {
       throw const AiServiceException('請先設定要使用的 AI 模型名稱。');
-    if (imageBytes.lengthInBytes > 8 * 1024 * 1024)
+    }
+    if (imageBytes.lengthInBytes > 8 * 1024 * 1024) {
       throw const AiServiceException('圖片過大，請選擇 8 MB 以下的圖片。');
+    }
     final base64Image = base64Encode(imageBytes);
     final response = switch (settings.provider) {
       AiProvider.openAiResponses =>
@@ -169,11 +218,14 @@ class AiService {
       required double bmi,
       double? desiredWeight}) async {
     final settings = await _settingsStore.load();
+    _validateEndpoint(settings);
     final apiKey = await _settingsStore.readApiKey();
-    if (apiKey == null || apiKey.isEmpty)
+    if (apiKey == null || apiKey.isEmpty) {
       throw const AiServiceException('請先在「目標」頁面的 AI 分析設定輸入 API 金鑰。');
-    if (settings.model.trim().isEmpty)
+    }
+    if (settings.model.trim().isEmpty) {
       throw const AiServiceException('請先設定要使用的 AI 模型名稱。');
+    }
     final goalInstruction = desiredWeight == null
         ? '請依安全、漸進的原則建議一個合理目標體重。'
         : '使用者指定的目標體重是 ${desiredWeight.toStringAsFixed(1)} kg，請以此為目標。';
@@ -220,6 +272,13 @@ class AiService {
     required int calorieTarget,
     required double proteinConsumed,
     required double proteinTarget,
+    required double carbsConsumed,
+    required double carbsTarget,
+    required double fatConsumed,
+    required double fatTarget,
+    required double fiberConsumed,
+    required double fiberTarget,
+    required int nutritionScore,
     required int steps,
     required int exerciseMinutes,
     required int activeCalories,
@@ -227,15 +286,17 @@ class AiService {
     required double goalWeight,
   }) async {
     final settings = await _settingsStore.load();
+    _validateEndpoint(settings);
     final apiKey = await _settingsStore.readApiKey();
     if (apiKey == null || apiKey.isEmpty)
       throw const AiServiceException('請先在設定的 AI 服務輸入 API 金鑰。');
     final prompt = '''你是一般健康管理的飲食教練。依以下今日資料給一則務實、簡短、不帶醫療診斷的繁體中文建議。
 餐點：$meals
-熱量：$caloriesConsumed / $calorieTarget kcal；蛋白質：${proteinConsumed.toStringAsFixed(0)} / ${proteinTarget.toStringAsFixed(0)} g。
+營養分數：$nutritionScore / 100（已由程式依熱量 30、蛋白質 25、碳水 15、脂肪 15、纖維 15 計算，請勿自行更改分數）。
+熱量：$caloriesConsumed / $calorieTarget kcal；蛋白質：${proteinConsumed.toStringAsFixed(0)} / ${proteinTarget.toStringAsFixed(0)} g；碳水化合物：${carbsConsumed.toStringAsFixed(0)} / ${carbsTarget.toStringAsFixed(0)} g；脂肪：${fatConsumed.toStringAsFixed(0)} / ${fatTarget.toStringAsFixed(0)} g；膳食纖維：${fiberConsumed.toStringAsFixed(0)} / ${fiberTarget.toStringAsFixed(0)} g。
 步數：$steps；運動時間：$exerciseMinutes 分鐘；消耗卡路里：$activeCalories / $activeCaloriesTarget kcal。
 目前減重目標體重：${goalWeight.toStringAsFixed(1)} kg。
-只輸出 JSON：{"headline":"12字內標題","advice":"1至2句具體建議"}。不要危險節食或醫療建議。''';
+只輸出 JSON：{"headline":"12字內標題","advice":"1至2句具體建議"}。若有缺口，建議一個容易執行的食物或餐點調整；不要危險節食、跳餐或醫療建議。''';
     final raw = await _requestText(settings, apiKey, prompt);
     try {
       final data = jsonDecode(raw
@@ -259,6 +320,7 @@ class AiService {
     String? imageMimeType,
   }) async {
     final settings = await _settingsStore.load();
+    _validateEndpoint(settings);
     final apiKey = await _settingsStore.readApiKey();
     if (apiKey == null || apiKey.isEmpty) {
       throw const AiServiceException('請先在 AI 服務設定中填入 API 金鑰。');
@@ -268,7 +330,7 @@ class AiService {
     }
     final prompt = '''你是 App 內的健康與健身教練。只能回答健身、運動、飲食、體重管理、睡眠和一般健康生活習慣相關的問題。
 若使用者問題與這些主題無關，answer 必須只回答「我只能協助健身、飲食與一般健康管理相關問題。」不要回答原問題。
-不得做出醫療診斷、開立處方或建議危險行為；有症狀、用藥、孕期、飲食疾患或慢性病等情況，請建議諮詢合格醫療人員。回答使用繁體中文，根據資料給出務實、簡短的 2 至 5 句建議。
+不得做出醫療診斷、開立處方或建議危險行為；不可鼓勵極端節食、跳餐或過度限制熱量。若纖維、蛋白質或其他營養素不足，優先給可執行的小調整，例如增加一份蔬菜、水果、豆製品或原型蛋白質。有症狀、用藥、孕期、飲食疾患或慢性病等情況，請建議諮詢合格醫療人員。回答使用繁體中文，根據資料給出務實、簡短的 2 至 5 句建議。
 
 使用者 App 資料：
 $userContext
@@ -300,9 +362,9 @@ $question
     }
   }
 
-  static const _prompt = '''分析這張餐點照片，估算可食用部分的熱量與蛋白質。請只輸出 JSON：
-{"items":[{"name":"食物名稱","calories":整數,"protein_g":數字}],"confidence":0到1之間的數字,"notes":"簡短且說明估算不確定性"}
-不可辨識的食物請省略；不要輸出 Markdown 或額外文字。''';
+  static const _prompt = '''分析這張餐點照片，估算每種可食用食物的份量與營養。請只輸出 JSON：
+{"items":[{"name":"食物名稱","estimated_grams":數字,"calories":整數,"protein_g":數字,"carbs_g":數字,"fat_g":數字,"fiber_g":數字}],"confidence":0到1之間的數字,"notes":"簡短且說明估算不確定性，以及使用者可手動調整所有數值"}
+請使用 g 作為份量與營養素單位。不可辨識的食物請省略；不要輸出 Markdown 或額外文字。''';
 
   Future<String> _openAiResponses(
       AiSettings s, String key, String image, String mime) async {
@@ -506,7 +568,6 @@ $question
         if (text is String) return text;
         throw const AiServiceException('Claude 沒有回傳可讀取的計畫。');
     }
-    throw const AiServiceException('AI 沒有回傳可讀取的計畫。');
   }
 
   Future<String> _requestTextWithImage(AiSettings s, String key, String prompt,
@@ -639,24 +700,52 @@ $question
     throw const AiServiceException('AI 沒有回傳可讀取的計畫。');
   }
 
+  void _validateEndpoint(AiSettings settings) {
+    final error = settings.provider.endpointValidationError(settings.endpoint);
+    if (error != null) throw AiServiceException(error);
+  }
+
   Future<String> _post(String url, Map<String, String> headers,
       Map<String, dynamic> body) async {
-    final response = await _client
-        .post(Uri.parse(url),
-            headers: {'Content-Type': 'application/json', ...headers},
-            body: jsonEncode(body))
-        .timeout(const Duration(seconds: 60));
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      var message = 'HTTP ${response.statusCode}';
+    const maxResponseBytes = 2 * 1024 * 1024;
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.scheme.toLowerCase() != 'https') {
+      throw const AiServiceException('基於安全考量，AI 服務只能使用 HTTPS 連線。');
+    }
+    final request = http.Request('POST', uri)
+      ..headers.addAll({'Content-Type': 'application/json', ...headers})
+      ..body = jsonEncode(body)
+      ..followRedirects = false;
+    final streamedResponse =
+        await _client.send(request).timeout(const Duration(seconds: 60));
+    if (streamedResponse.contentLength != null &&
+        streamedResponse.contentLength! > maxResponseBytes) {
+      throw const AiServiceException('AI 服務回應過大，已停止讀取。');
+    }
+    final responseBytes = BytesBuilder(copy: false);
+    await for (final chunk
+        in streamedResponse.stream.timeout(const Duration(seconds: 60))) {
+      responseBytes.add(chunk);
+      if (responseBytes.length > maxResponseBytes) {
+        throw const AiServiceException('AI 服務回應過大，已停止讀取。');
+      }
+    }
+    final responseBody =
+        utf8.decode(responseBytes.takeBytes(), allowMalformed: true);
+    if (streamedResponse.statusCode < 200 ||
+        streamedResponse.statusCode >= 300) {
+      var message = 'HTTP ${streamedResponse.statusCode}';
       try {
-        message = (jsonDecode(response.body) as Map<String, dynamic>)['error']
+        message = (jsonDecode(responseBody) as Map<String, dynamic>)['error']
                     ?['message']
                 ?.toString() ??
             message;
       } catch (_) {}
+      message = message.replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (message.length > 240) message = '${message.substring(0, 240)}…';
       throw AiServiceException('AI 服務回應失敗：$message');
     }
-    return response.body;
+    return responseBody;
   }
 
   AiMealAnalysis _parseAnalysis(String raw) {
@@ -671,6 +760,10 @@ $question
             final value = item as Map<String, dynamic>;
             return AiFoodItem(
                 name: value['name']?.toString() ?? '未命名食物',
+                estimatedGrams: (value['estimated_grams'] as num? ?? 0)
+                    .toDouble()
+                    .clamp(0, 3000)
+                    .toDouble(),
                 calories: (value['calories'] as num? ?? 0)
                     .round()
                     .clamp(0, 5000)
@@ -678,6 +771,18 @@ $question
                 protein: (value['protein_g'] as num? ?? 0)
                     .toDouble()
                     .clamp(0, 500)
+                    .toDouble(),
+                carbs: (value['carbs_g'] as num? ?? 0)
+                    .toDouble()
+                    .clamp(0, 1000)
+                    .toDouble(),
+                fat: (value['fat_g'] as num? ?? 0)
+                    .toDouble()
+                    .clamp(0, 500)
+                    .toDouble(),
+                fiber: (value['fiber_g'] as num? ?? 0)
+                    .toDouble()
+                    .clamp(0, 200)
                     .toDouble());
           })
           .where((item) => item.calories > 0 || item.protein > 0)

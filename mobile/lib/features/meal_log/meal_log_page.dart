@@ -46,7 +46,7 @@ class _MealLogPageState extends State<MealLogPage> {
                     .titleLarge
                     ?.copyWith(fontWeight: FontWeight.bold)),
             const SizedBox(height: 4),
-            Text(isToday ? '點選餐點可修改名稱、餐別、熱量或蛋白質。' : '可查看或修改當日已記錄的餐點。'),
+            Text(isToday ? '點選餐點可修改名稱、餐別與所有營養數值。' : '可查看或修改當日已記錄的餐點。'),
             const SizedBox(height: 12),
             if (meals.isEmpty && isToday)
               _EmptyMeals(onAdd: () => _showMealEditor(context, diet))
@@ -125,6 +125,10 @@ class _MealLogPageState extends State<MealLogPage> {
           initialName: result.suggestedName,
           initialCalories: result.totalCalories,
           initialProtein: result.totalProtein,
+          initialCarbs: result.totalCarbs,
+          initialFat: result.totalFat,
+          initialFiber: result.totalFiber,
+          initialPortionGrams: result.totalPortionGrams,
           analysisNote: result.notes,
           confidence: result.confidence);
     } catch (error) {
@@ -142,6 +146,10 @@ class _MealLogPageState extends State<MealLogPage> {
       String initialName = '',
       int? initialCalories,
       double? initialProtein,
+      double? initialCarbs,
+      double? initialFat,
+      double? initialFiber,
+      double? initialPortionGrams,
       String? analysisNote,
       double? confidence}) async {
     final name = TextEditingController(text: existing?.name ?? initialName);
@@ -151,6 +159,22 @@ class _MealLogPageState extends State<MealLogPage> {
     final protein = TextEditingController(
         text: existing?.protein.toStringAsFixed(0) ??
             initialProtein?.toStringAsFixed(0) ??
+            '');
+    final carbs = TextEditingController(
+        text: existing?.carbs.toStringAsFixed(0) ??
+            initialCarbs?.toStringAsFixed(0) ??
+            '0');
+    final fat = TextEditingController(
+        text: existing?.fat.toStringAsFixed(0) ??
+            initialFat?.toStringAsFixed(0) ??
+            '0');
+    final fiber = TextEditingController(
+        text: existing?.fiber.toStringAsFixed(0) ??
+            initialFiber?.toStringAsFixed(0) ??
+            '0');
+    final portion = TextEditingController(
+        text: existing?.portionGrams?.toStringAsFixed(0) ??
+            initialPortionGrams?.toStringAsFixed(0) ??
             '');
     var mealType = existing?.mealType ?? '午餐';
     final saved = await showDialog<bool>(
@@ -203,6 +227,37 @@ class _MealLogPageState extends State<MealLogPage> {
                             decimal: true),
                         decoration: const InputDecoration(
                             labelText: '蛋白質（g）', border: OutlineInputBorder())),
+                    const SizedBox(height: 12),
+                    TextField(
+                        controller: carbs,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration: const InputDecoration(
+                            labelText: '碳水化合物（g）',
+                            border: OutlineInputBorder())),
+                    const SizedBox(height: 12),
+                    TextField(
+                        controller: fat,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration: const InputDecoration(
+                            labelText: '脂肪（g）', border: OutlineInputBorder())),
+                    const SizedBox(height: 12),
+                    TextField(
+                        controller: fiber,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration: const InputDecoration(
+                            labelText: '膳食纖維（g）',
+                            border: OutlineInputBorder())),
+                    const SizedBox(height: 12),
+                    TextField(
+                        controller: portion,
+                        keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true),
+                        decoration: const InputDecoration(
+                            labelText: '估計份量（g，可留空）',
+                            border: OutlineInputBorder())),
                   ])),
                   actions: [
                     TextButton(
@@ -215,28 +270,48 @@ class _MealLogPageState extends State<MealLogPage> {
                 )));
     final calorieValue = int.tryParse(calories.text);
     final proteinValue = double.tryParse(protein.text);
+    final carbsValue = double.tryParse(carbs.text);
+    final fatValue = double.tryParse(fat.text);
+    final fiberValue = double.tryParse(fiber.text);
+    final portionValue =
+        portion.text.trim().isEmpty ? null : double.tryParse(portion.text);
     if (saved == true &&
         name.text.trim().isNotEmpty &&
         calorieValue != null &&
         calorieValue >= 0 &&
         proteinValue != null &&
-        proteinValue >= 0) {
+        proteinValue >= 0 &&
+        carbsValue != null &&
+        carbsValue >= 0 &&
+        fatValue != null &&
+        fatValue >= 0 &&
+        fiberValue != null &&
+        fiberValue >= 0 &&
+        (portionValue == null || portionValue >= 0)) {
       if (existing == null)
         await diet.addMeal(
             name: name.text,
             mealType: mealType,
             calories: calorieValue,
-            protein: proteinValue);
+            protein: proteinValue,
+            carbs: carbsValue,
+            fat: fatValue,
+            fiber: fiberValue,
+            portionGrams: portionValue);
       else
         await diet.updateMeal(
             id: existing.id,
             name: name.text,
             mealType: mealType,
             calories: calorieValue,
-            protein: proteinValue);
+            protein: proteinValue,
+            carbs: carbsValue,
+            fat: fatValue,
+            fiber: fiberValue,
+            portionGrams: portionValue);
     } else if (saved == true && context.mounted) {
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('請填寫有效的餐點名稱、熱量與蛋白質。')));
+          .showSnackBar(const SnackBar(content: Text('請填寫有效且非負的餐點名稱與營養數值。')));
     }
     // Dialog routes finish their exit transition after `showDialog` completes.
     // Keep the controllers alive until that transition has released its fields.
@@ -244,6 +319,10 @@ class _MealLogPageState extends State<MealLogPage> {
     name.dispose();
     calories.dispose();
     protein.dispose();
+    carbs.dispose();
+    fat.dispose();
+    fiber.dispose();
+    portion.dispose();
   }
 }
 
@@ -318,10 +397,11 @@ class _MealRow extends StatelessWidget {
   Widget build(BuildContext context) => Card(
       child: ListTile(
           onTap: onEdit,
+          isThreeLine: true,
           leading: const CircleAvatar(child: Icon(Icons.restaurant_menu)),
           title: Text(meal.name),
           subtitle: Text(
-              '${meal.mealType} · 蛋白質 ${meal.protein.toStringAsFixed(0)} g'),
+              '${meal.mealType} · 蛋白 ${meal.protein.toStringAsFixed(0)} g · 碳水 ${meal.carbs.toStringAsFixed(0)} g\n脂肪 ${meal.fat.toStringAsFixed(0)} g · 纖維 ${meal.fiber.toStringAsFixed(0)} g'),
           trailing: Row(mainAxisSize: MainAxisSize.min, children: [
             Text('${meal.calories}\nkcal',
                 textAlign: TextAlign.right,

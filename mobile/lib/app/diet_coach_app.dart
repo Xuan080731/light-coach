@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dynamic_color/dynamic_color.dart';
@@ -11,11 +12,13 @@ import '../features/about/about_page.dart';
 import '../features/ai/ai_settings_page.dart';
 import '../features/home/home_page.dart';
 import '../features/meal_log/meal_log_page.dart';
+import '../features/onboarding/onboarding_page.dart';
 import '../features/weight/weight_page.dart';
 import '../services/health_connect_service.dart';
 import '../services/ai_service.dart';
 import '../services/ai_coach_history_store.dart';
 import '../services/meal_reminder_service.dart';
+import '../services/nutrition_score_service.dart';
 import '../state/diet_controller.dart';
 
 class DietCoachApp extends StatefulWidget {
@@ -61,7 +64,7 @@ class _DietCoachAppState extends State<DietCoachApp> {
   }
 
   static String _signature(DietController controller) =>
-      '${controller.themeColor.name}|${controller.brightnessMode.name}';
+      '${controller.themeColor.name}|${controller.brightnessMode.name}|${controller.hasCompletedOnboarding}';
 
   @override
   Widget build(BuildContext context) {
@@ -89,7 +92,9 @@ class _DietCoachAppState extends State<DietCoachApp> {
                     brightness == Brightness.dark ? darkDynamic : lightDynamic);
             return Theme(data: _theme(colors), child: child!);
           }),
-          home: const _AppShell(),
+          home: diet.hasCompletedOnboarding
+              ? const _AppShell()
+              : const OnboardingPage(),
         ));
   }
 
@@ -439,17 +444,42 @@ class _AiLightCoachDialogState extends State<_AiLightCoachDialog> {
   String _appContext(DietController diet) {
     final today = DateTime.now();
     final meals = diet.mealsFor(today);
-    final mealNames =
-        meals.isEmpty ? '尚未記錄餐點' : meals.map((meal) => meal.name).join('、');
+    final calories = diet.caloriesFor(today);
+    final protein = diet.proteinFor(today);
+    final carbs = diet.carbsFor(today);
+    final fat = diet.fatFor(today);
+    final fiber = diet.fiberFor(today);
+    final nutritionScore = const NutritionScoreService().calculate(
+      calorieIntake: calories,
+      calorieTarget: diet.calorieTarget,
+      proteinIntake: protein,
+      proteinTarget: diet.proteinTarget,
+      carbsIntake: carbs,
+      carbsTarget: diet.carbsTarget,
+      fatIntake: fat,
+      fatTarget: diet.fatTarget,
+      fiberIntake: fiber,
+      fiberTarget: diet.fiberTarget,
+    );
+    final mealDetails = meals.isEmpty
+        ? '今天尚未記錄餐點'
+        : meals
+            .map((meal) =>
+                '${meal.mealType}：${meal.name}（${meal.calories} kcal、蛋白 ${meal.protein.toStringAsFixed(0)} g、碳水 ${meal.carbs.toStringAsFixed(0)} g、脂肪 ${meal.fat.toStringAsFixed(0)} g、纖維 ${meal.fiber.toStringAsFixed(0)} g）')
+            .join('；');
     return '''
 目前體重：${diet.currentWeight?.toStringAsFixed(1) ?? '尚未記錄'} kg
 身高：${diet.heightCm.toStringAsFixed(0)} cm；BMI：${diet.bmi?.toStringAsFixed(1) ?? '尚無'}
 目標體重：${diet.weightTarget.toStringAsFixed(1)} kg
-今日飲食熱量：${diet.caloriesFor(today)} / ${diet.calorieTarget} cal
-今日蛋白質：${diet.proteinFor(today).toStringAsFixed(0)} / ${diet.proteinTarget.toStringAsFixed(0)} g
-今日餐點：$mealNames
+今日飲食熱量：$calories / ${diet.calorieTarget} kcal
+今日蛋白質：${protein.toStringAsFixed(0)} / ${diet.proteinTarget.toStringAsFixed(0)} g
+今日碳水化合物：${carbs.toStringAsFixed(0)} / ${diet.carbsTarget.toStringAsFixed(0)} g
+今日脂肪：${fat.toStringAsFixed(0)} / ${diet.fatTarget.toStringAsFixed(0)} g
+今日膳食纖維：${fiber.toStringAsFixed(0)} / ${diet.fiberTarget.toStringAsFixed(0)} g
+今日 AI 營養分數：${nutritionScore.totalScore} / 100（熱量 ${nutritionScore.calorieScore}/30、蛋白 ${nutritionScore.proteinScore}/25、碳水 ${nutritionScore.carbsScore}/15、脂肪 ${nutritionScore.fatScore}/15、纖維 ${nutritionScore.fiberScore}/15）
+今日完整餐點：$mealDetails
 今日步數：${diet.totalStepsToday}；運動分鐘：${diet.totalExerciseMinutesToday}
-今日消耗卡路里：${diet.estimatedActivityCalories} / ${diet.activeCalorieTarget} cal
+今日消耗卡路里：${diet.estimatedActivityCalories} / ${diet.activeCalorieTarget} kcal
 ''';
   }
 
@@ -670,15 +700,6 @@ class _SettingsPage extends StatelessWidget {
             onTap: () => _changeTrackingMode(context, diet)),
         const Divider(height: 1),
         ListTile(
-            leading: const Icon(Icons.palette_outlined),
-            title: const Text('主題與外觀'),
-            subtitle:
-                Text('${diet.themeColor.label} · ${diet.brightnessMode.label}'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const _ThemeSettingsPage()))),
-        const Divider(height: 1),
-        ListTile(
             leading: const Icon(Icons.favorite_outline),
             title: const Text('Google Health Connect'),
             subtitle: Text(diet.usesHealthConnect
@@ -689,14 +710,6 @@ class _SettingsPage extends StatelessWidget {
                 .push(MaterialPageRoute(builder: (_) => const ActivityPage()))),
         const Divider(height: 1),
         ListTile(
-            leading: const Icon(Icons.backup_outlined),
-            title: const Text('本機備份與還原'),
-            subtitle: const Text('在這台裝置建立與還原資料備份'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(
-                builder: (_) => const _BackupSettingsPage()))),
-        const Divider(height: 1),
-        ListTile(
             leading: const Icon(Icons.notifications_active_outlined),
             title: const Text('餐點紀錄提醒'),
             subtitle: Text(diet.mealReminderEnabled
@@ -705,6 +718,23 @@ class _SettingsPage extends StatelessWidget {
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
                 builder: (_) => const _MealReminderSettingsPage()))),
+        const Divider(height: 1),
+        ListTile(
+            leading: const Icon(Icons.palette_outlined),
+            title: const Text('主題與外觀'),
+            subtitle:
+                Text('${diet.themeColor.label} · ${diet.brightnessMode.label}'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const _ThemeSettingsPage()))),
+        const Divider(height: 1),
+        ListTile(
+            leading: const Icon(Icons.backup_outlined),
+            title: const Text('本機備份與還原'),
+            subtitle: const Text('在這台裝置建立與還原資料備份'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const _BackupSettingsPage()))),
         const Divider(height: 1),
         ListTile(
             leading: const Icon(Icons.info_outline),
@@ -1086,6 +1116,7 @@ class _BackupSettingsPage extends StatefulWidget {
 }
 
 class _BackupSettingsPageState extends State<_BackupSettingsPage> {
+  static const _maxBackupFileBytes = 2 * 1024 * 1024;
   DateTime? _backupTime;
   var _loading = true;
 
@@ -1097,11 +1128,12 @@ class _BackupSettingsPageState extends State<_BackupSettingsPage> {
 
   Future<void> _loadBackupTime() async {
     final time = await DietScope.of(context).localBackupTime();
-    if (mounted)
+    if (mounted) {
       setState(() {
         _backupTime = time;
         _loading = false;
       });
+    }
   }
 
   Future<void> _createBackup() async {
@@ -1139,13 +1171,20 @@ class _BackupSettingsPageState extends State<_BackupSettingsPage> {
     final fileName =
         'light-coach-backup-${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}.json';
     try {
+      final backupBytes = Uint8List.fromList(
+          utf8.encode(DietScope.of(context).exportBackupDocument(now)));
+      if (backupBytes.lengthInBytes > _maxBackupFileBytes) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('備份資料超過 2 MB，無法匯出。')));
+        return;
+      }
       final path = await FilePicker.platform.saveFile(
         dialogTitle: '選擇備份檔儲存位置',
         fileName: fileName,
         type: FileType.custom,
         allowedExtensions: const ['json'],
-        bytes: Uint8List.fromList(
-            utf8.encode(DietScope.of(context).exportBackupDocument(now))),
+        bytes: backupBytes,
       );
       if (!mounted || path == null) return;
       ScaffoldMessenger.of(context)
@@ -1163,13 +1202,26 @@ class _BackupSettingsPageState extends State<_BackupSettingsPage> {
         dialogTitle: '選擇要還原的備份檔',
         type: FileType.custom,
         allowedExtensions: const ['json'],
-        withData: true,
+        withData: false,
       );
       if (!mounted || picked == null || picked.files.isEmpty) return;
-      final bytes = picked.files.first.bytes;
-      if (bytes == null) {
+      final pickedFile = picked.files.first;
+      if (pickedFile.size > _maxBackupFileBytes) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('備份檔不可超過 2 MB。')));
+        return;
+      }
+      final path = pickedFile.path;
+      if (path == null) {
         ScaffoldMessenger.of(context)
             .showSnackBar(const SnackBar(content: Text('讀取備份檔失敗。')));
+        return;
+      }
+      final bytes = await File(path).readAsBytes();
+      if (!mounted) return;
+      if (bytes.lengthInBytes > _maxBackupFileBytes) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('備份檔不可超過 2 MB。')));
         return;
       }
       final confirmed = await showDialog<bool>(
@@ -1233,7 +1285,8 @@ class _BackupSettingsPageState extends State<_BackupSettingsPage> {
                       Text('備份檔',
                           style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 6),
-                      const Text('選擇手機或雲端文件位置，保存可攜式 JSON 備份檔。'),
+                      const Text(
+                          '選擇手機或雲端文件位置，保存可攜式 JSON 備份檔。備份內容未加密，包含飲食與身體資料，請妥善保管。'),
                       const SizedBox(height: 16),
                       FilledButton.icon(
                           onPressed: _exportBackupFile,

@@ -65,6 +65,7 @@ extension AppBrightnessModeLabel on AppBrightnessMode {
 }
 
 class DietController extends ChangeNotifier {
+  static const _maxBackupDocumentLength = 2 * 1024 * 1024;
   static const _storageKey = 'diet_coach_data_v2';
   static const _backupKey = 'diet_coach_local_backup_v1';
 
@@ -72,6 +73,9 @@ class DietController extends ChangeNotifier {
   List<WeightEntry> _weights = [];
   int calorieTarget = 1800;
   double proteinTarget = 90;
+  double carbsTarget = 200;
+  double fatTarget = 60;
+  double fiberTarget = 25;
   double weightTarget = 65;
   int activeCalorieTarget = 300;
   double weeklyLossKg = 0.3;
@@ -89,6 +93,7 @@ class DietController extends ChangeNotifier {
   List<MealReminderTime> mealReminderTimes = [
     const MealReminderTime(hour: 19, minute: 30)
   ];
+  bool onboardingCompleted = false;
 
   List<MealEntry> get meals => List.unmodifiable(_meals);
   List<WeightEntry> get weights => List.unmodifiable(_weights);
@@ -119,6 +124,7 @@ class DietController extends ChangeNotifier {
   int get estimatedTotalBurned => estimatedBmr + estimatedActivityCalories;
   bool get usesHealthConnect => trackingMode == TrackingMode.healthConnect;
   bool get hasChosenTrackingMode => trackingMode != null;
+  bool get hasCompletedOnboarding => onboardingCompleted;
   bool get _isTodayActivity => activityDate == _dateKey(DateTime.now());
 
   Future<void> load() async {
@@ -145,19 +151,33 @@ class DietController extends ChangeNotifier {
   int caloriesFor(DateTime date) =>
       mealsFor(date).fold(0, (sum, entry) => sum + entry.calories);
   double proteinFor(DateTime date) =>
-      mealsFor(date).fold(0, (sum, entry) => sum + entry.protein);
+      mealsFor(date).fold(0.0, (sum, entry) => sum + entry.protein);
+  double carbsFor(DateTime date) =>
+      mealsFor(date).fold(0.0, (sum, entry) => sum + entry.carbs);
+  double fatFor(DateTime date) =>
+      mealsFor(date).fold(0.0, (sum, entry) => sum + entry.fat);
+  double fiberFor(DateTime date) =>
+      mealsFor(date).fold(0.0, (sum, entry) => sum + entry.fiber);
 
   Future<void> addMeal(
       {required String name,
       required String mealType,
       required int calories,
-      required double protein}) async {
+      required double protein,
+      double carbs = 0,
+      double fat = 0,
+      double fiber = 0,
+      double? portionGrams}) async {
     _meals.add(MealEntry(
         id: DateTime.now().microsecondsSinceEpoch.toString(),
         name: name.trim(),
         mealType: mealType,
         calories: calories,
         protein: protein,
+        carbs: carbs,
+        fat: fat,
+        fiber: fiber,
+        portionGrams: portionGrams,
         loggedAt: DateTime.now()));
     await _commit();
   }
@@ -172,7 +192,11 @@ class DietController extends ChangeNotifier {
       required String name,
       required String mealType,
       required int calories,
-      required double protein}) async {
+      required double protein,
+      double carbs = 0,
+      double fat = 0,
+      double fiber = 0,
+      double? portionGrams}) async {
     final index = _meals.indexWhere((entry) => entry.id == id);
     if (index == -1) return;
     final previous = _meals[index];
@@ -182,6 +206,10 @@ class DietController extends ChangeNotifier {
         mealType: mealType,
         calories: calories,
         protein: protein,
+        carbs: carbs,
+        fat: fat,
+        fiber: fiber,
+        portionGrams: portionGrams,
         loggedAt: previous.loggedAt);
     await _commit();
   }
@@ -198,10 +226,31 @@ class DietController extends ChangeNotifier {
   Future<void> updateTargets(
       {required int calories,
       required double protein,
-      required double weight}) async {
+      required double weight,
+      double? carbs,
+      double? fat,
+      double? fiber}) async {
     calorieTarget = calories;
     proteinTarget = protein;
     weightTarget = weight;
+    if (carbs != null) carbsTarget = carbs;
+    if (fat != null) fatTarget = fat;
+    if (fiber != null) fiberTarget = fiber;
+    await _commit();
+  }
+
+  Future<void> updateNutritionTargets({
+    required int calories,
+    required double protein,
+    required double carbs,
+    required double fat,
+    required double fiber,
+  }) async {
+    calorieTarget = calories;
+    proteinTarget = protein;
+    carbsTarget = carbs;
+    fatTarget = fat;
+    fiberTarget = fiber;
     await _commit();
   }
 
@@ -225,6 +274,11 @@ class DietController extends ChangeNotifier {
     weeklyLossKg = weeklyLoss;
     calorieTarget = calories;
     proteinTarget = protein;
+    fatTarget = (calories * 0.30 / 9).roundToDouble();
+    carbsTarget = ((calories - protein * 4 - fatTarget * 9) / 4)
+        .clamp(50, 400)
+        .toDouble();
+    fiberTarget = (calories / 1000 * 14).clamp(20, 35).roundToDouble();
     activeCalorieTarget = activeCalories;
     await _commit();
   }
@@ -266,6 +320,11 @@ class DietController extends ChangeNotifier {
     await _commit();
   }
 
+  Future<void> completeOnboarding() async {
+    onboardingCompleted = true;
+    await _commit();
+  }
+
   Future<DateTime?> createLocalBackup() async {
     final createdAt = DateTime.now();
     final prefs = await SharedPreferences.getInstance();
@@ -301,8 +360,10 @@ class DietController extends ChangeNotifier {
 
   /// Restores a document made by [exportBackupDocument].
   Future<bool> restoreBackupDocument(String raw) async {
+    if (raw.length > _maxBackupDocumentLength) return false;
     try {
       final backup = jsonDecode(raw) as Map<String, dynamic>;
+      if (backup['version'] != 1) return false;
       final data = backup['data'];
       if (data is! Map<String, dynamic>) return false;
       _applyData(data);
@@ -329,6 +390,9 @@ class DietController extends ChangeNotifier {
         'weights': _weights.map((entry) => entry.toJson()).toList(),
         'calorieTarget': calorieTarget,
         'proteinTarget': proteinTarget,
+        'carbsTarget': carbsTarget,
+        'fatTarget': fatTarget,
+        'fiberTarget': fiberTarget,
         'weightTarget': weightTarget,
         'activeCalorieTarget': activeCalorieTarget,
         'weeklyLossKg': weeklyLossKg,
@@ -345,6 +409,7 @@ class DietController extends ChangeNotifier {
         'mealReminderEnabled': mealReminderEnabled,
         'mealReminderTimes':
             mealReminderTimes.map((time) => time.toJson()).toList(),
+        'onboardingCompleted': onboardingCompleted,
       };
 
   void _applyData(Map<String, dynamic> data) {
@@ -357,6 +422,9 @@ class DietController extends ChangeNotifier {
       ..sort((a, b) => b.loggedAt.compareTo(a.loggedAt));
     calorieTarget = (data['calorieTarget'] as num? ?? 1800).round();
     proteinTarget = (data['proteinTarget'] as num? ?? 90).toDouble();
+    carbsTarget = (data['carbsTarget'] as num? ?? 200).toDouble();
+    fatTarget = (data['fatTarget'] as num? ?? 60).toDouble();
+    fiberTarget = (data['fiberTarget'] as num? ?? 25).toDouble();
     weightTarget = (data['weightTarget'] as num? ?? 65).toDouble();
     activeCalorieTarget = (data['activeCalorieTarget'] as num? ?? 300).round();
     weeklyLossKg = (data['weeklyLossKg'] as num? ?? 0.3).toDouble();
@@ -385,6 +453,8 @@ class DietController extends ChangeNotifier {
       _ => AppBrightnessMode.system,
     };
     mealReminderEnabled = data['mealReminderEnabled'] as bool? ?? false;
+    // Saved data from before onboarding already belongs to an existing user.
+    onboardingCompleted = data['onboardingCompleted'] as bool? ?? true;
     final savedTimes = data['mealReminderTimes'];
     if (savedTimes is List<dynamic>) {
       mealReminderTimes = _normalizeReminderTimes(savedTimes

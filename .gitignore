@@ -4,6 +4,7 @@ mobile/.flutter-plugins
 mobile/.flutter-plugins-dependencies
 mobile/.packages
 mobile/build/
+mobile/android/build/
 mobile/.idea/
 .vscode/
 
@@ -15,5 +16,16 @@ backend/.pytest_cache/
 *.py[cod]
 
 # Secrets
-.env
-backend/.env
+**/.env
+**/.env.*
+!**/.env.example
+**/key.properties
+**/*.keystore
+**/*.jks
+**/*.p12
+**/*.pfx
+**/*.pem
+**/*.key
+
+# Local tooling
+mobile/devtools_options.yaml

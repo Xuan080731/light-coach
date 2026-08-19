@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/ai_service.dart';
 import '../../state/diet_controller.dart';
+import 'nutrition_target_field.dart';
 
 class AiGoalPlanPage extends StatelessWidget {
   const AiGoalPlanPage({super.key});
@@ -53,7 +54,8 @@ class AiGoalPlanPage extends StatelessWidget {
                 .titleLarge
                 ?.copyWith(fontWeight: FontWeight.bold)),
         const SizedBox(height: 6),
-        const Text('AI 會依 BMI 與身體資料建議漸進式目標，並規劃每日熱量、蛋白質及活動消耗目標。結果可先檢視再套用。'),
+        const Text(
+            'AI 會依 BMI 與身體資料建議漸進式目標，並規劃每日熱量、蛋白質及活動消耗目標；碳水、脂肪與纖維會依熱量目標建立初始值，之後可自行調整。結果可先檢視再套用。'),
         const SizedBox(height: 14),
         FilledButton.icon(
             onPressed: diet.currentWeight == null
@@ -91,6 +93,40 @@ class AiGoalPlanPage extends StatelessWidget {
               title: const Text('每日活動消耗目標'),
               trailing: Text('${diet.activeCalorieTarget} kcal')),
         ])),
+        const SizedBox(height: 20),
+        Text('每日營養目標',
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.bold)),
+        const SizedBox(height: 8),
+        Card(
+            child: Column(children: [
+          ListTile(
+              title: const Text('熱量'),
+              trailing: Text('${diet.calorieTarget} kcal')),
+          const Divider(height: 1),
+          ListTile(
+              title: const Text('蛋白質'),
+              trailing: Text('${diet.proteinTarget.toStringAsFixed(0)} g')),
+          const Divider(height: 1),
+          ListTile(
+              title: const Text('碳水化合物'),
+              trailing: Text('${diet.carbsTarget.toStringAsFixed(0)} g')),
+          const Divider(height: 1),
+          ListTile(
+              title: const Text('脂肪'),
+              trailing: Text('${diet.fatTarget.toStringAsFixed(0)} g')),
+          const Divider(height: 1),
+          ListTile(
+              title: const Text('膳食纖維'),
+              trailing: Text('${diet.fiberTarget.toStringAsFixed(0)} g')),
+        ])),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+            onPressed: () => _editNutritionTargets(context, diet),
+            icon: const Icon(Icons.tune),
+            label: const Text('調整每日營養目標')),
         const SizedBox(height: 14),
         const Text(
             '健康提醒：BMI 與熱量規劃僅供一般健康管理。孕期、未成年、慢性疾病、飲食疾患或特殊用藥者，請與醫師或營養師共同設定目標。'),
@@ -105,6 +141,79 @@ class AiGoalPlanPage extends StatelessWidget {
           : bmi < 27
               ? '過重'
               : '肥胖風險較高';
+
+  Future<void> _editNutritionTargets(
+      BuildContext context, DietController diet) async {
+    final calories = TextEditingController(text: diet.calorieTarget.toString());
+    final protein =
+        TextEditingController(text: diet.proteinTarget.toStringAsFixed(0));
+    final carbs =
+        TextEditingController(text: diet.carbsTarget.toStringAsFixed(0));
+    final fat = TextEditingController(text: diet.fatTarget.toStringAsFixed(0));
+    final fiber =
+        TextEditingController(text: diet.fiberTarget.toStringAsFixed(0));
+    final saved = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+                title: const Text('每日營養目標'),
+                content: SingleChildScrollView(
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  TextField(
+                      controller: calories,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                          labelText: '熱量（kcal）', border: OutlineInputBorder())),
+                  const SizedBox(height: 12),
+                  NutritionTargetField(controller: protein, label: '蛋白質（g）'),
+                  const SizedBox(height: 12),
+                  NutritionTargetField(controller: carbs, label: '碳水化合物（g）'),
+                  const SizedBox(height: 12),
+                  NutritionTargetField(controller: fat, label: '脂肪（g）'),
+                  const SizedBox(height: 12),
+                  NutritionTargetField(controller: fiber, label: '膳食纖維（g）'),
+                ])),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(dialogContext),
+                      child: const Text('取消')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(dialogContext, true),
+                      child: const Text('儲存')),
+                ]));
+    final calorieValue = int.tryParse(calories.text);
+    final proteinValue = double.tryParse(protein.text);
+    final carbsValue = double.tryParse(carbs.text);
+    final fatValue = double.tryParse(fat.text);
+    final fiberValue = double.tryParse(fiber.text);
+    if (saved == true &&
+        calorieValue != null &&
+        calorieValue >= 800 &&
+        calorieValue <= 5000 &&
+        proteinValue != null &&
+        proteinValue >= 0 &&
+        carbsValue != null &&
+        carbsValue >= 0 &&
+        fatValue != null &&
+        fatValue >= 0 &&
+        fiberValue != null &&
+        fiberValue >= 0) {
+      await diet.updateNutritionTargets(
+          calories: calorieValue,
+          protein: proteinValue,
+          carbs: carbsValue,
+          fat: fatValue,
+          fiber: fiberValue);
+    } else if (saved == true && context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('請填寫有效的每日營養目標。')));
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    calories.dispose();
+    protein.dispose();
+    carbs.dispose();
+    fat.dispose();
+    fiber.dispose();
+  }
 
   Future<void> _editBodyProfile(
       BuildContext context, DietController diet) async {

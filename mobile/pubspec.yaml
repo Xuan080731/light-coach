@@ -15,7 +15,7 @@ dependencies:
   http: ^1.2.2
   image_picker: ^1.1.2
   health: ^13.3.1
-  permission_handler: ^11.3.1
+  permission_handler: ^13.0.1
   dynamic_color: ^1.8.1
   # v11 is not compatible with this project's Android Gradle Plugin 9 setup.
   file_picker: 10.3.10

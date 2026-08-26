@@ -16,7 +16,7 @@ dependencies:
   image_picker: ^1.1.2
   health: ^13.3.1
   permission_handler: ^11.3.1
-  dynamic_color: ^1.8.1
+  dynamic_color: ^2.1.0
   # v11 is not compatible with this project's Android Gradle Plugin 9 setup.
   file_picker: 10.3.10
   flutter_local_notifications: ^22.3.0
